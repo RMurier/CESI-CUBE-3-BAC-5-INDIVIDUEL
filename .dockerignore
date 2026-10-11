@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/.next/
+src/frontend/web/node_modules
+.git/
+.github/
+infra/
+docs/
+*.md
+docker-compose.yml
+load-tests/

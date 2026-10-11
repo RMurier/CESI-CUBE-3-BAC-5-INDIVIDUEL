@@ -1,0 +1,9 @@
+apiVersion: v2
+name: collector
+description: >
+  Chart Helm unique pour Collector.shop. Un seul chart, une valeur par environnement
+  (values-dev.yaml / values-uat.yaml / values-prod.yaml) — aucun changement de template
+  nécessaire entre dev, uat et prod, seules les values et le tag d'image diffèrent.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

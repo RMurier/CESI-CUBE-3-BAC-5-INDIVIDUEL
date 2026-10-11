@@ -1,0 +1,12 @@
+# Surcharge pour l'environnement dev. Déployé automatiquement par la CD sur chaque push sur `develop`.
+global:
+  domain: "dev.collector.CHANGE_ME.example.com"
+  environment: dev
+  # imageTag surchargé en ligne de commande par la CI : --set global.imageTag=sha-<git-sha>
+
+sqlServerEdition: Developer
+
+infisical:
+  environmentSlug: dev
+
+# En dev, tout tourne en 1 replica, ressources réduites : pas de HPA, pas de PodDisruptionBudget.

@@ -1,0 +1,65 @@
+{{- $root := . -}}
+# Nécessite Traefik (déjà fourni par k3s par défaut) + cert-manager avec un ClusterIssuer nommé
+# "letsencrypt" installés au niveau cluster (prérequis infra, hors chart) — voir README section 12
+# pour le nom de domaine réel à utiliser à la place de global.domain.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: collector-tls
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: collector-tls
+  dnsNames:
+    - {{ .Values.global.domain | quote }}
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: collector
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - websecure
+  tls:
+    secretName: collector-tls
+  routes:
+    {{- range $name, $svc := .Values.services }}
+    {{- if $svc.ingress.enabled }}
+    - match: Host(`{{ $root.Values.global.domain }}`) && PathPrefix(`{{ $svc.ingress.pathPrefix }}`)
+      kind: Rule
+      priority: {{ if eq $svc.ingress.pathPrefix "/" }}1{{ else }}10{{ end }}
+      services:
+        - name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+          port: 80
+    {{- end }}
+    {{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: collector-redirect-https
+  namespace: {{ .Release.Namespace }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: collector-http-redirect
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`{{ .Values.global.domain }}`)
+      kind: Rule
+      middlewares:
+        - name: collector-redirect-https
+      services:
+        - name: {{ include "collector.fullname" (dict "serviceName" "frontend") }}
+          port: 80

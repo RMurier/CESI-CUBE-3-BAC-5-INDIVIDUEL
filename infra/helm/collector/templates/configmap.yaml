@@ -1,0 +1,20 @@
+{{- $aspnetEnv := "Production" -}}
+{{- if eq .Values.global.environment "dev" -}}
+{{- $aspnetEnv = "Development" -}}
+{{- else if eq .Values.global.environment "uat" -}}
+{{- $aspnetEnv = "Staging" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "collector.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+data:
+  ASPNETCORE_ENVIRONMENT: {{ $aspnetEnv | quote }}
+  # Service discovery K8s natif : DNS court = <nom-du-service>, résolu dans le même namespace.
+  RabbitMq__HostName: "collector-rabbitmq"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  RabbitMq__ExchangeName: "collector.events"
+  Jwt__Issuer: "collector-identity"
+  Jwt__Audience: "collector-api"

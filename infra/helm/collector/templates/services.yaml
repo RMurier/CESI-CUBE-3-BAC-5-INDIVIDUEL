@@ -1,0 +1,72 @@
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "collector.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "collector.labels" (dict "root" $root "serviceName" $name) | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ include "collector.image" (dict "root" $root "image" $svc.image) }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "collector.configMapName" $root }}
+            - secretRef:
+                name: {{ include "collector.secretName" $root }}
+          {{- if $svc.db }}
+          env:
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collector.secretName" $root }}
+                  key: ConnectionStrings__{{ $name }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ if eq $name "frontend" }}/api/health{{ else }}/health/ready{{ end }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ if eq $name "frontend" }}/api/health{{ else }}/health{{ end }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "collector.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

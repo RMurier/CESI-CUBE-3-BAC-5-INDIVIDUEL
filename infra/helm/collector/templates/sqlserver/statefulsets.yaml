@@ -1,0 +1,71 @@
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+{{- if $svc.db }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: collector-{{ $name }}-sql
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "collector.labels" (dict "root" $root "serviceName" (printf "%s-sql" $name)) | nindent 4 }}
+spec:
+  serviceName: collector-{{ $name }}-sql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-sql
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "collector.labels" (dict "root" $root "serviceName" (printf "%s-sql" $name)) | nindent 8 }}
+    spec:
+      containers:
+        - name: sql
+          image: {{ $root.Values.sqlServer.image }}
+          ports:
+            - name: tds
+              containerPort: 1433
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_PID
+              value: {{ $root.Values.sqlServerEdition | quote }}
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "collector.secretName" $root }}
+                  key: MSSQL_SA_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/opt/mssql
+          resources:
+            {{- toYaml $root.Values.sqlServer.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ $root.Values.sqlServer.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collector-{{ $name }}-sql
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "collector.labels" (dict "root" $root "serviceName" (printf "%s-sql" $name)) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ $name }}-sql
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+  ports:
+    - name: tds
+      port: 1433
+      targetPort: tds
+{{- end }}
+{{- end }}

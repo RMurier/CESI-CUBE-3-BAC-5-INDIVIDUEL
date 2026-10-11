@@ -1,0 +1,30 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Secrets / env (tout doit venir d'Infisical, jamais committé)
+.env
+.env.*
+!.env.example
+
+# Helm
+infra/helm/**/charts/
+infra/helm/**/*.tgz
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

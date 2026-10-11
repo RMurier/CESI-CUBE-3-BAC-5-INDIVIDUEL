@@ -1,0 +1,52 @@
+# Confort de développement LOCAL uniquement (dotnet run / npm run dev en parallèle).
+# Les environnements dev/uat/prod réels tournent exclusivement sur K3s (infra/helm/collector) —
+# ce fichier ne sert jamais de référence de déploiement, seulement à itérer vite sur un poste de dev.
+# Mots de passe en clair ici : acceptable car local-only et non committé avec de vraies valeurs
+# (ceux-ci sont des valeurs de développement par défaut, cf. appsettings.Development.json).
+
+services:
+  identity-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Local_Dev_Only!1"
+    ports: ["14331:1433"]
+
+  catalog-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Local_Dev_Only!1"
+    ports: ["14332:1433"]
+
+  moderation-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Local_Dev_Only!1"
+    ports: ["14333:1433"]
+
+  notification-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Local_Dev_Only!1"
+    ports: ["14334:1433"]
+
+  chat-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "Local_Dev_Only!1"
+    ports: ["14335:1433"]
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"
+      - "15672:15672" # console d'admin http://localhost:15672 (guest/guest)

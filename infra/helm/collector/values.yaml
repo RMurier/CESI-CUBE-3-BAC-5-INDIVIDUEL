@@ -1,0 +1,123 @@
+# Valeurs par défaut communes aux 3 environnements. Ne JAMAIS mettre de secret ici (tout
+# secret arrive via l'InfisicalSecret -> Secret K8s "collector-secrets", cf. templates/infisical-secret.yaml).
+# Les fichiers values-dev.yaml / values-uat.yaml / values-prod.yaml ne surchargent que ce qui
+# diffère réellement entre environnements (domaine, replicas, ressources, tag d'image, edition SQL).
+
+global:
+  imageRegistry: "ghcr.io/CHANGE_ME"   # TODO: owner/repo GitHub réel — voir README section 12
+  imageTag: "latest"
+  domain: "CHANGE_ME.example.com"      # TODO: nom de domaine réel — voir README section 12
+  environment: dev                      # dev | uat | prod
+
+# Edition SQL Server utilisée par TOUTES les instances (une par service, cf. README section 5).
+# Developer = gratuite mais non licenciée pour la production (cf. README section 12, point SQL Server).
+# -> values-prod.yaml DOIT surcharger cette valeur une fois la question de licence tranchée.
+sqlServerEdition: Developer
+
+services:
+  identity:
+    image: collector-identity
+    port: 8080
+    replicas: 1
+    db: true
+    dbName: identity
+    ingress:
+      enabled: true
+      pathPrefix: /api/auth
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  catalog:
+    image: collector-catalog
+    port: 8080
+    replicas: 1
+    db: true
+    dbName: catalog
+    ingress:
+      enabled: true
+      pathPrefix: /api/catalog
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  chat:
+    image: collector-chat
+    port: 8080
+    replicas: 1
+    db: true
+    dbName: chat
+    ingress:
+      enabled: true
+      pathPrefix: /hubs/chat
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  notification:
+    image: collector-notification
+    port: 8080
+    replicas: 1
+    db: true
+    dbName: notification
+    ingress:
+      enabled: true
+      pathPrefix: /api/notifications
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  moderation:
+    image: collector-moderation
+    port: 8080
+    replicas: 1
+    db: true
+    dbName: moderation
+    ingress:
+      enabled: false   # service interne : consomme/publie RabbitMQ, pas exposé publiquement
+      pathPrefix: ""
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  frontend:
+    image: collector-frontend
+    port: 3000
+    replicas: 1
+    db: false
+    ingress:
+      enabled: true
+      pathPrefix: /
+      stripPrefix: false
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+rabbitmq:
+  image: "rabbitmq:4-management"
+  storage: 2Gi
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+sqlServer:
+  image: "mcr.microsoft.com/mssql/server:2022-latest"
+  storage: 5Gi
+  resources:
+    requests: { cpu: 250m, memory: 2Gi }
+    limits: { cpu: "1", memory: 2Gi }
+
+infisical:
+  enabled: true
+  hostApiUrl: "https://app.infisical.com/api"  # TODO si instance auto-hébergée — voir README section 12
+  projectId: "CHANGE_ME"                        # TODO — voir README section 12
+  environmentSlug: dev                           # doit correspondre à .Values.global.environment
+  secretsPath: "/"
+  # Nom du Kubernetes Secret (type Opaque) authentifiant l'opérateur Infisical (universal auth),
+  # à créer manuellement une fois par namespace AVANT le premier déploiement Helm (clientId/clientSecret).
+  machineIdentitySecretName: infisical-machine-identity

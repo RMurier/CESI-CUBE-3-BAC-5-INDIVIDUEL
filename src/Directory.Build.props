@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Désactivé : le contexte Collector exige le support internationalisation -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CA1848/CA1873 poussent vers des délégués LoggerMessage source-générés : gain de perf réel
+         mais hors de propos pour un POC, et ça masque des warnings plus utiles dans le bruit. -->
+    <NoWarn>$(NoWarn);CA1848;CA1873</NoWarn>
+  </PropertyGroup>
+
+  <!-- CA1707 (pas d'underscore dans les noms de membres) est en désaccord avec la convention xUnit
+       `Methode_scenario_resultat` très largement adoptée pour des noms de tests lisibles. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+</Project>
