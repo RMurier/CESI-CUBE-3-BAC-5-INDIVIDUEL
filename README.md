@@ -436,6 +436,15 @@ RabbitMQ), puis `dotnet run` dans chacun des 5 `src/services/*/*.Api/`, puis cô
 `src/frontend/web/.env.local.example` en `.env.local` et lancer `npm run dev` dans
 `src/frontend/web/`.
 
+**Tests Jest (2026-10-14)** : config `next/jest` câblée (`jest.config.js`, `jest.setup.ts`,
+script `npm test`), **5 suites / 12 tests, tous verts** — logique pure (`decodeJwt`,
+`articleStatusLabel`, `known-shops`) + rendu de composants (`StatusBadge`, `ArticleCard`) avec
+React Testing Library. Intégré à `ci.yml` (`npm test -- --ci`, avant le build). Avec les suites
+unitaires C# déjà vertes (`Chat.Api.Tests`, `Moderation.Api.Tests`), ça couvre dès maintenant le
+minimum de 2 types de tests du critère #7 **sans dépendre du déblocage Docker/WSL** — les tests
+d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce blocage levé (section
+12).
+
 ---
 
 ## 11. Bonnes pratiques à respecter
@@ -523,10 +532,6 @@ RabbitMQ), puis `dotnet run` dans chacun des 5 `src/services/*/*.Api/`, puis cô
 - [ ] Gestion i18n/accessibilité (exigence transverse du contexte) : ampleur à prévoir pour la V1 du
       POC (support multi-langue réel vs structure prête pour l'étendre) ?
 - [ ] Date de soutenance exacte dès qu'elle est connue, pour affiner le planning des 3 phases.
-- [ ] **Jest frontend** : aucun test écrit côté Next.js pour l'instant (requis : au moins 2 types de
-      tests au total, critère #7 — côté C# c'est déjà couvert : unitaire sur Chat/Moderation +
-      intégration xUnit/Testcontainers sur les 5 services, à débloquer dès l'intégration WSL Docker
-      activée, voir section 10/12).
 
 ---
 
@@ -541,6 +546,8 @@ RabbitMQ), puis `dotnet run` dans chacun des 5 `src/services/*/*.Api/`, puis cô
 | 2026-10-11 | Diagrammes d'architecture et CI/CD convertis en Mermaid (rendu natif GitHub). |
 | 2026-10-11 | Scaffolding complet demandé : 3 environnements (dev/uat/prod) sans changement de template entre eux, communication inter-services directe via K8s, Traefik (déjà présent sur le serveur OVH via k3s) retenu à la place d'un gateway custom YARP. Génération effective : 5 microservices .NET 10 (Identity, Catalog, Chat, Notification, Moderation) + librairies partagées (Collector.Contracts, Collector.Messaging/RabbitMQ), frontend Next.js (généré et buildé avec succès), chart Helm unique validé par `helm lint`/`helm template` sur les 3 environnements, workflows GitHub Actions ci.yml/cd.yml, docker-compose.yml pour le dev local. Docker indisponible dans cette session (pas d'intégration WSL) : Dockerfiles écrits mais non build-testés. |
 | 2026-10-12 | Suite de la session scaffolding : installation du SDK .NET 10.0.100 en local (`~/.dotnet`) pour enfin vérifier le build réel — `dotnet build src/Collector.sln` passe (0 erreur/warning, 12 projets). Tests lancés : les suites unitaires pures (`PersonalDataFilterTests` 6/6, `AutomatedModerationRulesTests` 4/4) passent ; les suites d'intégration (Testcontainers/SQL Server) échouent avec `DockerUnavailableException` — cause identifiée : Docker Desktop est installé côté Windows mais son intégration WSL n'est pas activée pour cette distro (réglage GUI utilisateur, hors de portée du terminal). Documentation (sections 10, 12, 13) resynchronisée avec cet état réel vérifié — les mentions précédentes "aucun test écrit" étaient obsolètes, les fichiers de test existaient déjà dans le commit `init: first commit`. |
+| 2026-10-13 | Développement du parcours métier frontend demandé en priorité (plutôt que Phase B événementielle ou tests manquants, voir choix explicite). Squelette `create-next-app` remplacé par les pages réelles catalogue/login/register/compte/boutique/notifications câblées sur Identity+Catalog+Notification (détail section 10.1) ; achat et chat exclus car respectivement non supportés côté backend et hors fil rouge retenu. CORS + `launchSettings.json` (ports fixes) ajoutés aux services concernés pour permettre l'exécution locale multi-services. `npm run build`/`lint` vérifiés verts après correction d'un conflit entre le SPA 100% client et les flags expérimentaux `cacheComponents`/`partialPrefetching` du scaffold (désactivés, inutiles ici). Commit poussé sur `origin/master`. |
+| 2026-10-14 | Docker/WSL toujours indisponible dans cette session (vérifié à nouveau, inchangé depuis le 2026-10-12) — tests d'intégration C# toujours bloqués, pas une régression. Mise en place de Jest côté frontend (config absente malgré les dépendances déjà présentes dans `package.json`) : `jest.config.js`/`jest.setup.ts`, 5 suites/12 tests (logique pure + rendu composants), intégrés à `ci.yml`. Au passage, `npm install` a dû être relancé car `node_modules/.bin/jest` manquait malgré la présence du package dans `node_modules/jest` — lockfile désynchronisé d'une session précédente. |
 
 ---
 

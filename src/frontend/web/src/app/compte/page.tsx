@@ -5,13 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { createShop } from "@/lib/api/catalog";
-import { addKnownShop, getKnownShops, type KnownShop } from "@/lib/known-shops";
+import { addKnownShop, getKnownShops } from "@/lib/known-shops";
 
 export default function AccountPage() {
   const { auth, loading, becomeSeller } = useAuth();
   const router = useRouter();
 
-  const [shops, setShops] = useState<KnownShop[]>([]);
   const [becoming, setBecoming] = useState(false);
   const [becomeError, setBecomeError] = useState<string | null>(null);
 
@@ -24,11 +23,12 @@ export default function AccountPage() {
     if (!loading && !auth) router.push("/login");
   }, [loading, auth, router]);
 
-  useEffect(() => {
-    if (auth) setShops(getKnownShops(auth.userId));
-  }, [auth]);
-
   if (loading || !auth) return <p className="text-sm text-zinc-500">Chargement…</p>;
+
+  // Dérivé directement de localStorage à chaque rendu plutôt que mis en état + effet : pas de
+  // "liste des boutiques d'un vendeur" côté Catalog.Api (voir known-shops.ts), et ça se recalcule
+  // naturellement après handleCreateShop grâce aux autres setState qu'il déclenche déjà.
+  const shops = getKnownShops(auth.userId);
 
   const isSeller = auth.roles.includes("Seller");
 
@@ -51,7 +51,6 @@ export default function AccountPage() {
     try {
       const shop = await createShop(auth!.token, shopName, shopDescription);
       addKnownShop(auth!.userId, { id: shop.id, name: shop.name });
-      setShops(getKnownShops(auth!.userId));
       setShopName("");
       setShopDescription("");
     } catch (err) {

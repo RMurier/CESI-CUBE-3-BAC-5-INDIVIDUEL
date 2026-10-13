@@ -31,6 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
+      // Hydratation volontairement différée au montage (pas dans l'initialiseur de useState) :
+      // localStorage n'existe pas pendant le rendu serveur, le lire plus tôt provoquerait un
+      // mismatch d'hydratation entre le HTML serveur et le premier rendu client.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (raw) setAuth(JSON.parse(raw) as AuthState);
     } catch {
       // stockage indisponible : on repart simplement sans session persistée.

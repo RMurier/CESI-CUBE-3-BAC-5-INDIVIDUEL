@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Config CommonJS pour next/jest (require() y est la forme attendue, pas du code applicatif).
+    "jest.config.js",
   ]),
 ]);
 
