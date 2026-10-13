@@ -13,6 +13,13 @@ builder.Services.AddCollectorEventBus(builder.Configuration);
 builder.Services.AddHostedService<ArticlePublishedConsumer>();
 builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
 
+var frontendOrigin = builder.Configuration["Cors:FrontendOrigin"]
+    ?? throw new InvalidOperationException("Configuration 'Cors:FrontendOrigin' manquante.");
+builder.Services.AddCors(options => options.AddPolicy("Frontend", policy => policy
+    .WithOrigins(frontendOrigin)
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
+
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<NotificationDbContext>();
 
@@ -23,6 +30,8 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
     db.Database.EnsureCreated();
 }
+
+app.UseCors("Frontend");
 
 app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/ready");

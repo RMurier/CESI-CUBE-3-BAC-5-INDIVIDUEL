@@ -358,6 +358,8 @@ avec `SONAR_HOST_URL` / `SONAR_TOKEN` (CI uniquement, pas des secrets runtime ap
 │   │   └── Moderation/Moderation.Api/  ← règles auto. + audit trail
 │   │       (chaque *.Api/ contient : Dockerfile, appsettings.json, appsettings.Development.json)
 │   └── frontend/web/                ← Next.js (App Router, TypeScript, Tailwind), Dockerfile
+│       └── src/app/                 ← catalogue, login/register, compte, boutiques/[id], articles/[id],
+│                                        notifications — cf. section 10.1
 ├── infra/helm/collector/
 │   ├── Chart.yaml, values.yaml, values-dev.yaml, values-uat.yaml, values-prod.yaml
 │   ├── README.md                   ← prérequis cluster + clés Infisical attendues
@@ -369,14 +371,70 @@ avec `SONAR_HOST_URL` / `SONAR_TOKEN` (CI uniquement, pas des secrets runtime ap
     └── cd.yml                      ← build+push 6 images GHCR, scan Trivy, déploiement dev/uat/prod
 ```
 
-**Ce qui est réellement fonctionnel aujourd'hui** : le code C# compile conceptuellement (non vérifié
-par un build réel — SDK .NET indisponible dans cette session, voir section 14), le frontend Next.js a
-été généré et **buildé avec succès** (`npm run build` + `npm run lint` passés), le chart Helm a été
-**validé** (`helm lint` + `helm template` sur les 3 environnements, zéro erreur).
+**Ce qui est réellement fonctionnel aujourd'hui** : SDK .NET 10.0.100 installé en local
+(`~/.dotnet`, conforme au pin `global.json`) et **build réel vérifié** — `dotnet build
+src/Collector.sln` passe avec 0 warning / 0 erreur sur les 12 projets (5 services + tests + 3 libs
+partagées). Les **tests unitaires purs** (sans dépendance externe) passent : 6/6
+`Chat.Api.Tests.PersonalDataFilterTests` + 4/4 `Moderation.Api.Tests.AutomatedModerationRulesTests`.
+Le frontend Next.js a été généré et **buildé avec succès** (`npm run build` + `npm run lint`
+passés), le chart Helm a été **validé** (`helm lint` + `helm template` sur les 3 environnements,
+zéro erreur).
 
-**Ce qui n'est PAS encore fait** : aucun test automatisé écrit (xUnit/Jest), aucune image Docker
-construite/testée (Docker indisponible dans cette session WSL), pas de documents/dossiers déplacés
-(les 3 PDF/XLSX consignes restent à la racine).
+**Ce qui n'est PAS encore fait / bloqué dans cette session** : les tests d'**intégration**
+(Testcontainers → SQL Server éphémère) échouent avec `DockerUnavailableException` : le CLI `docker`
+est présent sur l'hôte Windows (Docker Desktop) mais **l'intégration WSL n'est pas activée** pour
+cette distro (`/mnt/wsl/docker-desktop` existe mais pas de socket exposé ici) — réglage à faire côté
+utilisateur dans *Docker Desktop → Settings → Resources → WSL Integration*, pas quelque chose
+d'automatisable depuis ce terminal. Tant que ce n'est pas activé : aucune image Docker
+construite/testée, et les suites `AuthEndpointsTests` (Identity), `ShopAndArticleEndpointsTests`
+(Catalog), `ConversationEndpointsTests` (Chat), `SubscriptionAndNotificationEndpointsTests`
+(Notification) et `DecisionsEndpointTests` (Moderation) restent non exécutables ici. Pas de
+documents/dossiers déplacés (les 3 PDF/XLSX consignes restent à la racine).
+
+---
+
+## 10.1 Frontend Next.js — parcours implémenté (2026-10-13)
+
+> Le squelette `create-next-app` par défaut a été remplacé par le vrai parcours métier, câblé sur
+> les API réellement exposées par Identity/Catalog/Notification (voir section 5). Le parcours
+> **achat** n'est pas implémenté côté frontend car **aucun endpoint de commande/paiement n'existe
+> encore côté Catalog.Api** — plutôt que de simuler un faux achat, le fil rouge démontré est celui
+> retenu en section 5 : publication d'article → contrôle automatisé → notification. Le **chat
+> SignalR** n'a pas non plus de page dédiée pour l'instant (service fonctionnel côté backend,
+> intégration frontend non prioritaire sur ce increment).
+
+- `/` — catalogue public (visiteur, `GET /articles`, articles `Published` uniquement).
+- `/articles/[id]` — détail d'un article + statut de modération.
+- `/login`, `/register` — Identity (`/auth/login`, `/auth/register`), JWT stocké côté client
+  (`localStorage`, décodé pour en extraire `sub`/`email`/`display_name` — les rôles viennent
+  directement de la réponse API, jamais décodés depuis le token).
+- `/compte` — tableau de bord : bouton "Devenir vendeur" (`/auth/become-seller`), création de
+  boutique (`POST /shops`), liste des boutiques du vendeur (voir limite ci-dessous).
+- `/boutiques/[shopId]` — détail boutique + formulaire de publication d'article
+  (`POST /shops/{id}/articles`), **polling 3 s** sur `GET /shops/{id}` pour visualiser en direct la
+  transition `PendingReview → Published/Rejected` pilotée par Moderation via RabbitMQ.
+- `/notifications` — abonnement à un centre d'intérêt (`POST /subscriptions`) + liste des
+  notifications in-app (`GET /notifications/{userId}`, `POST /notifications/{id}/read`).
+
+**Limite connue assumée** : `Catalog.Api` n'expose aucun endpoint "boutiques d'un vendeur" — la
+liste des boutiques sur `/compte` est donc reconstituée **côté client** (`localStorage`, par
+utilisateur) au moment de la création. Une boutique créée sur un autre navigateur/appareil reste
+accessible via son URL directe mais n'apparaît pas automatiquement dans cette liste. À corriger en
+ajoutant un vrai `GET /shops?sellerId=` si ce point est jugé bloquant pour la démo.
+
+**Glue backend indispensable ajoutée pour que le frontend fonctionne en local** (Identity, Catalog,
+Notification uniquement — Chat/Moderation non appelés par le frontend pour l'instant) :
+- CORS (`Cors:FrontendOrigin`, nouvelle clé de config — valeur dev `http://localhost:3000` dans
+  `appsettings.Development.json` de chaque service ; **à définir via Helm/Infisical pour
+  uat/prod une fois le nom de domaine du frontend connu**, voir questions ouvertes).
+- `Properties/launchSettings.json` sur les 5 services (`dotnet run` sans Docker) pour leur donner un
+  port HTTP fixe et pouvoir tous les lancer simultanément en local : Identity `5101`, Catalog
+  `5102`, Chat `5103`, Notification `5104`, Moderation `5105`.
+
+**Pour lancer le parcours complet en local** : démarrer `docker-compose up` (SQL Server x5 +
+RabbitMQ), puis `dotnet run` dans chacun des 5 `src/services/*/*.Api/`, puis côté frontend copier
+`src/frontend/web/.env.local.example` en `.env.local` et lancer `npm run dev` dans
+`src/frontend/web/`.
 
 ---
 
@@ -446,9 +504,12 @@ construite/testée (Docker indisponible dans cette session WSL), pas de document
 - [ ] **Clés Infisical à renseigner** avant le premier déploiement réel (liste complète dans
       `infra/helm/collector/README.md`) : `Jwt__SigningKey`, 5× `ConnectionStrings__<service>`,
       `MSSQL_SA_PASSWORD`, `RabbitMq__UserName`/`Password`, `KUBE_CONFIG_B64`.
-- [ ] **Validation réelle des Dockerfiles** : non testés dans cette session (Docker indisponible en
-      WSL ici) — à builder/tester dès que possible (`docker build -f src/services/.../Dockerfile .`
-      depuis la racine du repo).
+- [ ] **Validation réelle des Dockerfiles** : toujours non testée — le CLI `docker` est présent sur
+      l'hôte Windows mais l'**intégration WSL de Docker Desktop n'est pas activée** pour cette
+      distro (`Settings → Resources → WSL Integration`, à faire manuellement). Une fois activée,
+      builder/tester avec `docker build -f src/services/.../Dockerfile .` depuis la racine du repo
+      **et** relancer `dotnet test` pour débloquer les tests d'intégration Testcontainers (voir
+      section 10).
 
 ### Priorité basse / à affiner en cours de route
 - [ ] Formation équipe (phase 1.1.3) : quelle action de formation concrète proposer (ex: formation
@@ -462,9 +523,10 @@ construite/testée (Docker indisponible dans cette session WSL), pas de document
 - [ ] Gestion i18n/accessibilité (exigence transverse du contexte) : ampleur à prévoir pour la V1 du
       POC (support multi-langue réel vs structure prête pour l'étendre) ?
 - [ ] Date de soutenance exacte dès qu'elle est connue, pour affiner le planning des 3 phases.
-- [ ] **Tests automatisés à écrire** (xUnit pour les 5 services + `Collector.Messaging`, Jest pour le
-      frontend) — le scaffolding ne contient aucun test pour l'instant, `ci.yml` tournera mais ne
-      couvrira rien tant qu'ils ne sont pas ajoutés (requis : au moins 2 types de tests, critère #7).
+- [ ] **Jest frontend** : aucun test écrit côté Next.js pour l'instant (requis : au moins 2 types de
+      tests au total, critère #7 — côté C# c'est déjà couvert : unitaire sur Chat/Moderation +
+      intégration xUnit/Testcontainers sur les 5 services, à débloquer dès l'intégration WSL Docker
+      activée, voir section 10/12).
 
 ---
 
@@ -478,6 +540,7 @@ construite/testée (Docker indisponible dans cette session WSL), pas de document
 | 2026-10-11 | Précision : une **instance SQL Server distincte par service** (pas une base/schéma sur une instance partagée) — isolation complète, impact à vérifier sur le dimensionnement du cluster OVH. |
 | 2026-10-11 | Diagrammes d'architecture et CI/CD convertis en Mermaid (rendu natif GitHub). |
 | 2026-10-11 | Scaffolding complet demandé : 3 environnements (dev/uat/prod) sans changement de template entre eux, communication inter-services directe via K8s, Traefik (déjà présent sur le serveur OVH via k3s) retenu à la place d'un gateway custom YARP. Génération effective : 5 microservices .NET 10 (Identity, Catalog, Chat, Notification, Moderation) + librairies partagées (Collector.Contracts, Collector.Messaging/RabbitMQ), frontend Next.js (généré et buildé avec succès), chart Helm unique validé par `helm lint`/`helm template` sur les 3 environnements, workflows GitHub Actions ci.yml/cd.yml, docker-compose.yml pour le dev local. Docker indisponible dans cette session (pas d'intégration WSL) : Dockerfiles écrits mais non build-testés. |
+| 2026-10-12 | Suite de la session scaffolding : installation du SDK .NET 10.0.100 en local (`~/.dotnet`) pour enfin vérifier le build réel — `dotnet build src/Collector.sln` passe (0 erreur/warning, 12 projets). Tests lancés : les suites unitaires pures (`PersonalDataFilterTests` 6/6, `AutomatedModerationRulesTests` 4/4) passent ; les suites d'intégration (Testcontainers/SQL Server) échouent avec `DockerUnavailableException` — cause identifiée : Docker Desktop est installé côté Windows mais son intégration WSL n'est pas activée pour cette distro (réglage GUI utilisateur, hors de portée du terminal). Documentation (sections 10, 12, 13) resynchronisée avec cet état réel vérifié — les mentions précédentes "aucun test écrit" étaient obsolètes, les fichiers de test existaient déjà dans le commit `init: first commit`. |
 
 ---
 

@@ -34,6 +34,13 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
+var frontendOrigin = builder.Configuration["Cors:FrontendOrigin"]
+    ?? throw new InvalidOperationException("Configuration 'Cors:FrontendOrigin' manquante.");
+builder.Services.AddCors(options => options.AddPolicy("Frontend", policy => policy
+    .WithOrigins(frontendOrigin)
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
+
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<IdentityDbContext>();
 
@@ -46,6 +53,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 }
 
+app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 
