@@ -1,7 +1,7 @@
 {{- $root := . -}}
 # Nécessite Traefik (déjà fourni par k3s par défaut) + cert-manager avec un ClusterIssuer nommé
-# "letsencrypt" installés au niveau cluster (prérequis infra, hors chart) — voir README section 12
-# pour le nom de domaine réel à utiliser à la place de global.domain.
+# "letsencrypt" installés au niveau cluster (prérequis infra, hors chart). Domaine réel défini par
+# environnement dans values-{dev,uat,prod}.yaml (global.domain) — voir README section 4.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

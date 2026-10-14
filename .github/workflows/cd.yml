@@ -1,13 +1,12 @@
 name: CD
 
 # develop -> déploiement auto sur dev
-# main    -> déploiement auto sur uat
-# tag v*  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
+# uat     -> déploiement auto sur uat
+# master  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
 #            à configurer une fois dans Settings > Environments — pas automatisable depuis ce fichier).
 on:
   push:
-    branches: [develop, main]
-    tags: ["v*"]
+    branches: [develop, uat, master]
 
 permissions:
   contents: read
@@ -39,12 +38,7 @@ jobs:
 
       - id: tag
         name: Déterminer le tag d'image
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -103,7 +97,7 @@ jobs:
 
   deploy-uat:
     name: Déploiement uat
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/uat'
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: uat
@@ -131,7 +125,7 @@ jobs:
 
   deploy-prod:
     name: Déploiement prod
-    if: github.ref_type == 'tag'
+    if: github.ref == 'refs/heads/master'
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)

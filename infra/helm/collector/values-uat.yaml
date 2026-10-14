@@ -1,6 +1,6 @@
-# Surcharge pour l'environnement uat (recette). Déployé automatiquement par la CD sur chaque push sur `main`.
+# Surcharge pour l'environnement uat (recette). Déployé automatiquement par la CD sur chaque push sur `uat`.
 global:
-  domain: "uat.collector.CHANGE_ME.example.com"
+  domain: "uat.collector.romainmurier.com"
   environment: uat
   # imageTag surchargé en ligne de commande par la CI : --set global.imageTag=sha-<git-sha>
 

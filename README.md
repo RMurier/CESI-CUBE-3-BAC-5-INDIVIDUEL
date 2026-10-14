@@ -145,6 +145,8 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Observabilité (logs) | **Omnia** (outil propriétaire de l'utilisateur, omnia-monitoring.com) | 2026-10-11 | À intégrer — détails d'intégration à préciser (voir questions ouvertes) |
 | Observabilité (métriques) | **Prometheus + Grafana**, en complément d'Omnia si besoin | 2026-10-11 | Standard K8s, dashboards de charge utiles en soutenance |
 | Load testing | Siege ou JMeter (cité dans les consignes) | — | Outil précis non tranché, voir questions ouvertes |
+| Stratégie de branches | **`develop`→dev, `uat`→uat, `master`→prod** (push direct, pas de tags), déploiement prod protégé par l'environnement GitHub "production" (reviewer requis) | 2026-10-14 | Le repo utilise `master` comme branche par défaut (pas `main`) — alignement du pipeline CD sur les branches réelles, schéma tag-based abandonné pour rester simple en solo dev |
+| Nom de domaine | **romainmurier.com** : `dev.collector.romainmurier.com` (dev), `uat.collector.romainmurier.com` (uat), `collector.romainmurier.com` (prod) | 2026-10-14 | Domaine personnel de l'utilisateur, déjà configurable (DNS + cert-manager/Let's Encrypt) |
 
 ---
 
@@ -283,14 +285,14 @@ Deux workflows séparés : `ci.yml` (qualité, sur PR/push) et `cd.yml` (build i
 
 ```mermaid
 flowchart TD
-    A["push / PR (develop, main)"] --> B["ci.yml : build + tests<br/>(.NET : dotnet build/test, Testcontainers)"]
+    A["push / PR (develop, uat, master)"] --> B["ci.yml : build + tests<br/>(.NET : dotnet build/test, Testcontainers)"]
     B --> C["ci.yml : SonarQube scan<br/>(serveur auto-hébergé)"]
     C --> D["ci.yml : scan vulnérabilités NuGet<br/>+ frontend : lint, npm audit, build"]
     D --> E["cd.yml : build image Docker par service (6)<br/>→ push GHCR + scan Trivy"]
     E --> F{"Déclencheur ?"}
-    F -->|push develop| G["helm upgrade --install<br/>namespace collector-dev"]
-    F -->|push main| H["helm upgrade --install<br/>namespace collector-uat"]
-    F -->|tag v*| I["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod"]
+    F -->|push develop| G["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
+    F -->|push uat| H["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
+    F -->|push master| I["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
 ```
 
 Secrets de pipeline (kubeconfig, identifiants SonarQube) récupérés **depuis Infisical** pendant le job
@@ -475,8 +477,6 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 > question est résolue en session, **déplacer la décision dans la section 4** et cocher ici.
 
 ### Priorité haute (bloquantes pour un vrai déploiement)
-- [ ] **Nom de domaine** réel pour remplacer `CHANGE_ME.example.com` dans `values-*.yaml` (Ingress
-      HTTPS, cert-manager/Let's Encrypt).
 - [ ] **Accès au cluster OVH** : récupération du kubeconfig, encodage en base64, dépôt dans Infisical
       sous la clé `KUBE_CONFIG_B64` (env dev/uat/prod) — voir `infra/helm/collector/README.md`.
       **Point d'attention dimensionnement** : 5 instances SQL Server + RabbitMQ par environnement
@@ -498,6 +498,15 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **SQL Server en prod** : édition Developer non licenciée pour la production (cf. commentaire dans
       `values-prod.yaml`) — décider entre licence Standard/Enterprise payante ou bascule vers une offre
       managée (Azure SQL) avant un vrai déploiement prod.
+- [ ] **DNS romainmurier.com** : créer les enregistrements `dev.collector`, `uat.collector` et
+      `collector` (A ou CNAME) pointant vers l'IP publique du serveur OVH/k3s, sinon cert-manager
+      ne pourra pas valider les certificats Let's Encrypt (challenge HTTP-01/DNS-01) pour les 3
+      domaines ajoutés en section 4.
+- [ ] **CORS frontend** (`Cors:FrontendOrigin`) : à définir via Helm/Infisical pour uat/prod
+      maintenant que le nom de domaine est connu (`https://dev.collector.romainmurier.com`,
+      `https://uat.collector.romainmurier.com`, `https://collector.romainmurier.com`) — actuellement
+      seule la valeur dev locale (`http://localhost:3000`) est câblée dans
+      `appsettings.Development.json` de chaque service (voir section 10).
 
 ### Priorité moyenne
 - [ ] **Omnia (omnia-monitoring.com)** : quel mécanisme d'ingestion des logs (agent à déployer dans
@@ -507,8 +516,8 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
       place dans Notification.Api — à remplacer par un vrai envoi SMTP (Mailjet, Brevo...) en
       implémentant `IEmailSender` sans toucher au reste du service.
 - [ ] **Outil de test de charge** : Siege ou JMeter (ou k6) — rien encore dans `load-tests/`.
-- [ ] **Stratégie de branches/commits** : GitFlow, trunk-based, Conventional Commits ? (`ci.yml`/`cd.yml`
-      supposent `develop`→dev, `main`→uat, tags `v*`→prod — à confirmer ou adapter).
+- [ ] **Convention de commits** : Conventional Commits ou libre ? (la stratégie de branches
+      elle-même est tranchée, voir section 4 — `develop`→dev, `uat`→uat, `master`→prod).
 - [ ] **Repo GitHub public ou privé** ? Impacte la visibilité pour le jury et l'accessibilité GHCR.
 - [ ] **Clés Infisical à renseigner** avant le premier déploiement réel (liste complète dans
       `infra/helm/collector/README.md`) : `Jwt__SigningKey`, 5× `ConnectionStrings__<service>`,
@@ -547,6 +556,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-11 | Scaffolding complet demandé : 3 environnements (dev/uat/prod) sans changement de template entre eux, communication inter-services directe via K8s, Traefik (déjà présent sur le serveur OVH via k3s) retenu à la place d'un gateway custom YARP. Génération effective : 5 microservices .NET 10 (Identity, Catalog, Chat, Notification, Moderation) + librairies partagées (Collector.Contracts, Collector.Messaging/RabbitMQ), frontend Next.js (généré et buildé avec succès), chart Helm unique validé par `helm lint`/`helm template` sur les 3 environnements, workflows GitHub Actions ci.yml/cd.yml, docker-compose.yml pour le dev local. Docker indisponible dans cette session (pas d'intégration WSL) : Dockerfiles écrits mais non build-testés. |
 | 2026-10-12 | Suite de la session scaffolding : installation du SDK .NET 10.0.100 en local (`~/.dotnet`) pour enfin vérifier le build réel — `dotnet build src/Collector.sln` passe (0 erreur/warning, 12 projets). Tests lancés : les suites unitaires pures (`PersonalDataFilterTests` 6/6, `AutomatedModerationRulesTests` 4/4) passent ; les suites d'intégration (Testcontainers/SQL Server) échouent avec `DockerUnavailableException` — cause identifiée : Docker Desktop est installé côté Windows mais son intégration WSL n'est pas activée pour cette distro (réglage GUI utilisateur, hors de portée du terminal). Documentation (sections 10, 12, 13) resynchronisée avec cet état réel vérifié — les mentions précédentes "aucun test écrit" étaient obsolètes, les fichiers de test existaient déjà dans le commit `init: first commit`. |
 | 2026-10-13 | Développement du parcours métier frontend demandé en priorité (plutôt que Phase B événementielle ou tests manquants, voir choix explicite). Squelette `create-next-app` remplacé par les pages réelles catalogue/login/register/compte/boutique/notifications câblées sur Identity+Catalog+Notification (détail section 10.1) ; achat et chat exclus car respectivement non supportés côté backend et hors fil rouge retenu. CORS + `launchSettings.json` (ports fixes) ajoutés aux services concernés pour permettre l'exécution locale multi-services. `npm run build`/`lint` vérifiés verts après correction d'un conflit entre le SPA 100% client et les flags expérimentaux `cacheComponents`/`partialPrefetching` du scaffold (désactivés, inutiles ici). Commit poussé sur `origin/master`. |
+| 2026-10-14 | Mise en place du pipeline CI/CD multi-env demandée : `develop`→dev, `uat`→uat, `master`→prod (le repo utilise `master`, pas `main` — bug latent corrigé au passage, le trigger `main` ne s'était jamais déclenché). `cd.yml` repensé en push direct sur les 3 branches (schéma tag `v*` abandonné, tag d'image toujours `sha-<courte>`), `deploy-prod` reste protégé par l'environnement GitHub "production" (reviewer requis). `ci.yml` aligné sur les mêmes 3 branches. Domaine réel fourni par l'utilisateur (`romainmurier.com`) : `dev.collector.romainmurier.com` / `uat.collector.romainmurier.com` / `collector.romainmurier.com`, remplace les placeholders `CHANGE_ME.example.com` dans les 4 fichiers `values*.yaml`. `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec les nouveaux domaines. Questions ouvertes "nom de domaine" et "stratégie de branches" déplacées en section 4 (résolues) ; ajout de deux nouvelles questions ouvertes : création des enregistrements DNS chez le registrar de `romainmurier.com`, et mise à jour de `Cors:FrontendOrigin` pour uat/prod maintenant que les domaines sont connus. |
 | 2026-10-14 | Docker/WSL toujours indisponible dans cette session (vérifié à nouveau, inchangé depuis le 2026-10-12) — tests d'intégration C# toujours bloqués, pas une régression. Mise en place de Jest côté frontend (config absente malgré les dépendances déjà présentes dans `package.json`) : `jest.config.js`/`jest.setup.ts`, 5 suites/12 tests (logique pure + rendu composants), intégrés à `ci.yml`. Au passage, `npm install` a dû être relancé car `node_modules/.bin/jest` manquait malgré la présence du package dans `node_modules/jest` — lockfile désynchronisé d'une session précédente. |
 
 ---

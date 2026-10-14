@@ -1,6 +1,6 @@
 # Surcharge pour l'environnement dev. Déployé automatiquement par la CD sur chaque push sur `develop`.
 global:
-  domain: "dev.collector.CHANGE_ME.example.com"
+  domain: "dev.collector.romainmurier.com"
   environment: dev
   # imageTag surchargé en ligne de commande par la CI : --set global.imageTag=sha-<git-sha>
 

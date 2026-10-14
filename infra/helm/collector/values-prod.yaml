@@ -1,7 +1,8 @@
-# Surcharge pour l'environnement prod. Déployé manuellement (approbation requise, GitHub
-# Environment protégé) sur tag `v*`.
+# Surcharge pour l'environnement prod. Déployé automatiquement par la CD sur chaque push sur
+# `master`, mais protégé par l'environnement GitHub "production" (reviewer requis avant que le job
+# ne s'exécute réellement).
 global:
-  domain: "collector.CHANGE_ME.example.com"
+  domain: "collector.romainmurier.com"
   environment: prod
   # imageTag surchargé en ligne de commande par la CI : --set global.imageTag=<tag-semver>
 

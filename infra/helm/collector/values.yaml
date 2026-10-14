@@ -6,7 +6,7 @@
 global:
   imageRegistry: "ghcr.io/CHANGE_ME"   # TODO: owner/repo GitHub réel — voir README section 12
   imageTag: "latest"
-  domain: "CHANGE_ME.example.com"      # TODO: nom de domaine réel — voir README section 12
+  domain: "collector.romainmurier.com" # valeur par défaut = domaine prod ; dev/uat surchargent via values-*.yaml
   environment: dev                      # dev | uat | prod
 
 # Edition SQL Server utilisée par TOUTES les instances (une par service, cf. README section 5).
