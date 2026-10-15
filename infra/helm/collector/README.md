@@ -22,15 +22,23 @@ Un seul chart, une valeur par environnement. Déployer sur dev/uat/prod ne chang
 
 Toutes synchronisées automatiquement vers le Secret K8s `collector-secrets` par l'opérateur Infisical :
 
+**Un mot de passe `sa` distinct par service** (pas une valeur partagée entre les 5 instances SQL
+Server) : une base compromise ne donne pas accès aux 4 autres. Chaque `ConnectionStrings__<service>`
+doit utiliser le `MSSQL_SA_PASSWORD__<service>` **du même service**, jamais celui d'un autre.
+
 | Clé | Utilisée par |
 |---|---|
 | `Jwt__SigningKey` | Identity, Catalog, Chat (vérification JWT) |
-| `ConnectionStrings__identity` | Identity.Api (`Server=collector-identity-sql,1433;Database=identity;User Id=sa;Password=<même valeur que MSSQL_SA_PASSWORD>;TrustServerCertificate=True`) |
-| `ConnectionStrings__catalog` | Catalog.Api (idem avec `collector-catalog-sql` / `Database=catalog`) |
-| `ConnectionStrings__chat` | Chat.Api (idem `collector-chat-sql` / `Database=chat`) |
-| `ConnectionStrings__notification` | Notification.Api (idem `collector-notification-sql` / `Database=notification`) |
-| `ConnectionStrings__moderation` | Moderation.Api (idem `collector-moderation-sql` / `Database=moderation`) |
-| `MSSQL_SA_PASSWORD` | Les 5 StatefulSets SQL Server (même mot de passe que ci-dessus) |
+| `MSSQL_SA_PASSWORD__identity` | StatefulSet `collector-identity-sql` |
+| `ConnectionStrings__identity` | Identity.Api (`Server=collector-identity-sql,1433;Database=identity;User Id=sa;Password=<valeur de MSSQL_SA_PASSWORD__identity>;TrustServerCertificate=True`) |
+| `MSSQL_SA_PASSWORD__catalog` | StatefulSet `collector-catalog-sql` |
+| `ConnectionStrings__catalog` | Catalog.Api (idem avec `collector-catalog-sql` / `Database=catalog` / `MSSQL_SA_PASSWORD__catalog`) |
+| `MSSQL_SA_PASSWORD__chat` | StatefulSet `collector-chat-sql` |
+| `ConnectionStrings__chat` | Chat.Api (idem `collector-chat-sql` / `Database=chat` / `MSSQL_SA_PASSWORD__chat`) |
+| `MSSQL_SA_PASSWORD__notification` | StatefulSet `collector-notification-sql` |
+| `ConnectionStrings__notification` | Notification.Api (idem `collector-notification-sql` / `Database=notification` / `MSSQL_SA_PASSWORD__notification`) |
+| `MSSQL_SA_PASSWORD__moderation` | StatefulSet `collector-moderation-sql` |
+| `ConnectionStrings__moderation` | Moderation.Api (idem `collector-moderation-sql` / `Database=moderation` / `MSSQL_SA_PASSWORD__moderation`) |
 | `RabbitMq__UserName` / `RabbitMq__Password` | RabbitMQ (StatefulSet) + tous les services consommateurs |
 
 **`KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID` et `INFISICAL_CLIENT_SECRET` ne sont volontairement PAS
