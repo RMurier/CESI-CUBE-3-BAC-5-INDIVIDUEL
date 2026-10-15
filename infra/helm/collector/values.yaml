@@ -4,7 +4,7 @@
 # diffère réellement entre environnements (domaine, replicas, ressources, tag d'image, edition SQL).
 
 global:
-  imageRegistry: "ghcr.io/CHANGE_ME"   # TODO: owner/repo GitHub réel — voir README section 12
+  imageRegistry: "ghcr.io/rmurier"     # owner GHCR réel (lowercase requis par la norme OCI)
   imageTag: "latest"
   domain: "collector.romainmurier.com" # valeur par défaut = domaine prod ; dev/uat surchargent via values-*.yaml
   environment: dev                      # dev | uat | prod
