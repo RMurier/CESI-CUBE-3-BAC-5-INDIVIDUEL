@@ -5,13 +5,17 @@ name: CD
 # master  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
 #            à configurer une fois dans Settings > Environments — pas automatisable depuis ce fichier).
 #
-# Séparation des secrets : KUBE_CONFIG_B64 (accès au cluster, secret d'infra CI) vit dans les
-# secrets de CHAQUE environnement GitHub (dev/uat/production) — jamais dans Infisical, qui ne
-# contient que les secrets applicatifs (Jwt signing key, connection strings SQL, RabbitMQ...).
-# Ces secrets applicatifs ne passent jamais par ce pipeline : l'Infisical Secrets Operator,
-# installé dans le cluster, les synchronise lui-même en continu (resyncInterval: 60s, voir
-# templates/infisical-secret.yaml) directement depuis Infisical vers le Secret K8s de chaque
-# namespace — un changement de valeur dans Infisical est donc reflété sans redéploiement CI/CD.
+# Séparation des secrets : KUBE_CONFIG_B64 et INFISICAL_CLIENT_ID/SECRET (accès au cluster et à
+# Infisical, secrets d'infra CI/CD) vivent en secrets de REPO GitHub, pas dans Infisical — les 3
+# environnements tournent sur le même cluster physique, donc ce sont des valeurs identiques pour
+# dev/uat/prod (pas d'intérêt à les dupliquer en secrets d'environnement, cf. README section 4).
+# Infisical ne contient que les secrets APPLICATIFS (Jwt signing key, connection strings SQL,
+# RabbitMQ...), jamais lus par ce pipeline : l'Infisical Secrets Operator dans le cluster les
+# synchronise lui-même en continu (resyncInterval: 60s, voir templates/infisical-secret.yaml) —
+# un changement de valeur dans Infisical est reflété sans redéploiement CI/CD. Le Secret K8s
+# `infisical-machine-identity` qui authentifie cet opérateur est lui-même provisionné à chaque
+# déploiement via --set ci-dessous (voir templates/infisical-machine-identity.yaml) : changer de
+# serveur = changer KUBE_CONFIG_B64, le reste se reconfigure automatiquement au prochain déploiement.
 on:
   push:
     branches: [develop, uat, master]
@@ -89,6 +93,8 @@ jobs:
             -f infra/helm/collector/values-dev.yaml \
             --namespace collector-dev --create-namespace \
             --set global.imageTag=${{ needs.build-and-push.outputs.tag }} \
+            --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
+            --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
             --wait --timeout 5m
 
@@ -109,6 +115,8 @@ jobs:
             -f infra/helm/collector/values-uat.yaml \
             --namespace collector-uat --create-namespace \
             --set global.imageTag=${{ needs.build-and-push.outputs.tag }} \
+            --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
+            --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
             --wait --timeout 5m
 
@@ -129,5 +137,7 @@ jobs:
             -f infra/helm/collector/values-prod.yaml \
             --namespace collector-prod --create-namespace \
             --set global.imageTag=${{ needs.build-and-push.outputs.tag }} \
+            --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
+            --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
             --wait --timeout 5m

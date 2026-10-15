@@ -10,16 +10,13 @@ Un seul chart, une valeur par environnement. Déployer sur dev/uat/prod ne chang
    DNS01 selon le provider DNS) — requis par `templates/ingressroute.yaml`.
 3. **Infisical Secrets Operator** installé au niveau cluster — requis par `templates/infisical-secret.yaml`.
    Voir https://infisical.com/docs/integrations/platforms/kubernetes (à revérifier, l'opérateur évolue vite).
-4. Pour **chaque** namespace (`collector-dev`, `collector-uat`, `collector-prod`) : un Secret K8s nommé
-   `infisical-machine-identity` contenant `clientId`/`clientSecret` d'une Machine Identity Infisical
-   (Universal Auth), créé manuellement **avant** le premier déploiement Helm :
-   ```bash
-   kubectl create namespace collector-dev
-   kubectl create secret generic infisical-machine-identity \
-     --namespace collector-dev \
-     --from-literal=clientId=<...> \
-     --from-literal=clientSecret=<...>
-   ```
+4. Une Machine Identity Infisical (Universal Auth) existante, avec son `clientId`/`clientSecret` — le
+   Secret K8s `infisical-machine-identity` qui authentifie l'opérateur dans chaque namespace est
+   provisionné **automatiquement à chaque déploiement Helm** par `templates/infisical-machine-identity.yaml`,
+   alimenté par `cd.yml` via `--set-string infisical.machineIdentity.clientId/clientSecret` depuis
+   les GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` — plus de `kubectl create
+   secret` manuel, et changer de serveur (nouveau `KUBE_CONFIG_B64`) n'exige aucune étape
+   supplémentaire : le prochain déploiement recrée tout.
 
 ## Clés attendues dans Infisical (environnement dev/uat/prod)
 
@@ -36,10 +33,13 @@ Toutes synchronisées automatiquement vers le Secret K8s `collector-secrets` par
 | `MSSQL_SA_PASSWORD` | Les 5 StatefulSets SQL Server (même mot de passe que ci-dessus) |
 | `RabbitMq__UserName` / `RabbitMq__Password` | RabbitMQ (StatefulSet) + tous les services consommateurs |
 
-**`KUBE_CONFIG_B64` n'est volontairement PAS dans cette liste** : c'est un secret d'infra CI/CD, pas
-un secret applicatif — il vit en secret d'**environnement GitHub** (`Settings > Environments >
-dev/uat/production > Environment secrets`, une valeur par environnement même si c'est le même
-cluster physique), lu directement par `cd.yml`. Le pipeline CI/CD ne contacte jamais Infisical.
+**`KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID` et `INFISICAL_CLIENT_SECRET` ne sont volontairement PAS
+dans cette liste** : ce sont des secrets d'infra CI/CD, pas des secrets applicatifs — même cluster
+physique pour les 3 environnements, donc une seule valeur de chaque, en secrets de **repo** GitHub
+(`Settings > Secrets and variables > Actions > Repository secrets`), lus directement par `cd.yml`.
+Le pipeline CI/CD ne lit jamais les secrets applicatifs d'Infisical ; il se contente de
+provisionner le Secret K8s qui permet à l'opérateur Infisical (dans le cluster) de les récupérer
+lui-même (voir `templates/infisical-machine-identity.yaml`).
 
 ## Déploiement manuel (hors CI, pour test local)
 
@@ -48,6 +48,8 @@ helm upgrade --install collector infra/helm/collector \
   -f infra/helm/collector/values-dev.yaml \
   --namespace collector-dev --create-namespace \
   --set global.imageTag=latest \
+  --set-string infisical.machineIdentity.clientId=<...> \
+  --set-string infisical.machineIdentity.clientSecret=<...> \
   --kubeconfig <chemin-vers-kubeconfig>
 ```
 
