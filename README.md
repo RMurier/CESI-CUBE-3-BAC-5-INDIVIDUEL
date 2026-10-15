@@ -147,6 +147,7 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Load testing | Siege ou JMeter (cité dans les consignes) | — | Outil précis non tranché, voir questions ouvertes |
 | Stratégie de branches | **`develop`→dev, `uat`→uat, `master`→prod** (push direct, pas de tags), déploiement prod protégé par l'environnement GitHub "production" (reviewer requis) | 2026-10-14 | Le repo utilise `master` comme branche par défaut (pas `main`) — alignement du pipeline CD sur les branches réelles, schéma tag-based abandonné pour rester simple en solo dev |
 | Nom de domaine | **romainmurier.com** : `dev.collector.romainmurier.com` (dev), `uat.collector.romainmurier.com` (uat), `collector.romainmurier.com` (prod) | 2026-10-14 | Domaine personnel de l'utilisateur, déjà configurable (DNS + cert-manager/Let's Encrypt) |
+| Séparation des secrets | **GitHub** = secrets d'infra CI/CD uniquement (`KUBE_CONFIG_B64` en secret d'**environnement** dev/uat/production, `SONAR_HOST_URL`/`SONAR_TOKEN` au niveau repo). **Infisical** = secrets applicatifs uniquement, jamais lus par la CI — synchronisés en continu vers K8s par l'Infisical Secrets Operator (`resyncInterval: 60`) | 2026-10-15 | Les 3 environnements tournent sur le **même cluster OVH physique** : dupliquer le même kubeconfig dans Infisical dev/uat/prod n'avait pas de sens (ce n'est pas un secret qui varie par environnement, contrairement aux secrets applicatifs) ; scoper `KUBE_CONFIG_B64` en secret d'environnement GitHub ajoute en prime la barrière "reviewer requis" avant que le job prod puisse même lire le secret |
 
 ---
 
@@ -295,10 +296,19 @@ flowchart TD
     F -->|push master| I["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
 ```
 
-Secrets de pipeline (kubeconfig, identifiants SonarQube) récupérés **depuis Infisical** pendant le job
-(`Infisical/secrets-action`), pas dupliqués en GitHub Secrets — seuls `INFISICAL_CLIENT_ID` /
-`INFISICAL_CLIENT_SECRET` (machine identity CI) sont un bootstrap minimal stocké en GitHub Secrets,
-avec `SONAR_HOST_URL` / `SONAR_TOKEN` (CI uniquement, pas des secrets runtime applicatifs).
+**Séparation stricte des deux magasins de secrets** (décision 2026-10-15, voir section 4) :
+- **GitHub** (Secrets d'**environnement**, un par `dev`/`uat`/`production`) : uniquement des secrets
+  d'**infra CI/CD** — `KUBE_CONFIG_B64` (accès au cluster OVH) et, au niveau repo, `SONAR_HOST_URL` /
+  `SONAR_TOKEN`. Le pipeline ne contacte jamais Infisical : décoder `KUBE_CONFIG_B64` suffit pour
+  lancer `helm upgrade`. Scoper `KUBE_CONFIG_B64` par environnement GitHub (plutôt qu'un secret
+  unique au niveau repo) a un effet de sécurité concret : le secret de l'environnement `production`
+  n'est révélé au job qu'**après** validation du reviewer requis par cet environnement.
+- **Infisical** : uniquement des secrets **applicatifs** (`Jwt__SigningKey`, `ConnectionStrings__*`,
+  `MSSQL_SA_PASSWORD`, `RabbitMq__UserName`/`Password`). Ils ne transitent **jamais** par ce
+  pipeline — l'Infisical Secrets Operator, installé une fois au niveau cluster, les synchronise lui
+  même en continu depuis Infisical vers le Secret K8s de chaque namespace
+  (`resyncInterval: 60`, `templates/infisical-secret.yaml`) : changer une valeur dans Infisical la
+  propage automatiquement en ~60s, sans passer par la CI.
 
 ---
 
@@ -486,9 +496,15 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **SonarQube auto-hébergé** : URL du serveur (`SONAR_HOST_URL`) + token (`SONAR_TOKEN`) à ajouter
       en GitHub Secrets, et vérifier que les runners GitHub-hosted (IP publiques) peuvent l'atteindre
       (sinon prévoir un runner self-hosted ou ouvrir le firewall OVH).
-- [ ] **Infisical** : confirmer `projectSlug: collector` (utilisé dans les templates Helm et `cd.yml`)
-      correspond au vrai nom de projet Infisical, et que les 3 environnements `dev`/`uat`/`prod` y
-      sont bien créés avec les clés listées dans `infra/helm/collector/README.md`.
+- [ ] **Infisical `projectSlug`** : `infra/helm/collector/values.yaml` → `infisical.projectId`
+      contient actuellement un UUID (ex. `29ff6457-...`) alors que le champ CRD consommé par
+      `templates/infisical-secret.yaml` s'appelle `projectSlug` et attend le **slug** du projet
+      (identifiant court lisible, visible dans Infisical sous *Project Settings*), pas l'ID
+      technique — à vérifier/corriger avant le premier déploiement, sinon l'opérateur ne résoudra
+      pas le projet. Confirmer aussi que les 3 environnements y sont bien créés avec les clés
+      listées dans `infra/helm/collector/README.md` (note : `values-uat.yaml` pointe déjà vers
+      `environmentSlug: staging` — à garder cohérent avec les noms réels des environnements
+      Infisical créés).
 - [ ] **Infisical Secrets Operator + cert-manager** : confirmer qu'ils seront installés au niveau
       cluster (prérequis documentés dans `infra/helm/collector/README.md`, hors scope du chart lui-même).
 - [ ] **Propriétaire GitHub réel** : remplacer `CHANGE_ME` dans `global.imageRegistry` (values*.yaml)
@@ -519,9 +535,20 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **Convention de commits** : Conventional Commits ou libre ? (la stratégie de branches
       elle-même est tranchée, voir section 4 — `develop`→dev, `uat`→uat, `master`→prod).
 - [ ] **Repo GitHub public ou privé** ? Impacte la visibilité pour le jury et l'accessibilité GHCR.
-- [ ] **Clés Infisical à renseigner** avant le premier déploiement réel (liste complète dans
-      `infra/helm/collector/README.md`) : `Jwt__SigningKey`, 5× `ConnectionStrings__<service>`,
-      `MSSQL_SA_PASSWORD`, `RabbitMq__UserName`/`Password`, `KUBE_CONFIG_B64`.
+- [ ] **Clés Infisical à renseigner** avant le premier déploiement réel — uniquement des secrets
+      **applicatifs** désormais (liste complète dans `infra/helm/collector/README.md`) :
+      `Jwt__SigningKey`, 5× `ConnectionStrings__<service>`, `MSSQL_SA_PASSWORD`,
+      `RabbitMq__UserName`/`Password`. `KUBE_CONFIG_B64` n'est plus dans Infisical (voir section 4,
+      décision "Séparation des secrets") : à renseigner comme secret d'**environnement GitHub**
+      (`Settings > Environments > dev/uat/production > Environment secrets`), une valeur par
+      environnement même si c'est le même cluster physique.
+- [ ] **GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`** : créés lors du setup
+      initial pour que la CI interroge Infisical, mais `cd.yml` ne contacte plus Infisical (voir
+      section 4) — ils peuvent être supprimés des GitHub Secrets. Le **même** couple
+      clientId/clientSecret de machine identity peut en revanche être réutilisé pour créer le
+      Secret K8s `infisical-machine-identity` attendu par l'opérateur dans chaque namespace (voir
+      `infra/helm/collector/README.md`), ou en générer un dédié si une identité distincte
+      CI/runtime est préférée.
 - [ ] **Validation réelle des Dockerfiles** : toujours non testée — le CLI `docker` est présent sur
       l'hôte Windows mais l'**intégration WSL de Docker Desktop n'est pas activée** pour cette
       distro (`Settings → Resources → WSL Integration`, à faire manuellement). Une fois activée,
@@ -558,6 +585,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-13 | Développement du parcours métier frontend demandé en priorité (plutôt que Phase B événementielle ou tests manquants, voir choix explicite). Squelette `create-next-app` remplacé par les pages réelles catalogue/login/register/compte/boutique/notifications câblées sur Identity+Catalog+Notification (détail section 10.1) ; achat et chat exclus car respectivement non supportés côté backend et hors fil rouge retenu. CORS + `launchSettings.json` (ports fixes) ajoutés aux services concernés pour permettre l'exécution locale multi-services. `npm run build`/`lint` vérifiés verts après correction d'un conflit entre le SPA 100% client et les flags expérimentaux `cacheComponents`/`partialPrefetching` du scaffold (désactivés, inutiles ici). Commit poussé sur `origin/master`. |
 | 2026-10-14 | Mise en place du pipeline CI/CD multi-env demandée : `develop`→dev, `uat`→uat, `master`→prod (le repo utilise `master`, pas `main` — bug latent corrigé au passage, le trigger `main` ne s'était jamais déclenché). `cd.yml` repensé en push direct sur les 3 branches (schéma tag `v*` abandonné, tag d'image toujours `sha-<courte>`), `deploy-prod` reste protégé par l'environnement GitHub "production" (reviewer requis). `ci.yml` aligné sur les mêmes 3 branches. Domaine réel fourni par l'utilisateur (`romainmurier.com`) : `dev.collector.romainmurier.com` / `uat.collector.romainmurier.com` / `collector.romainmurier.com`, remplace les placeholders `CHANGE_ME.example.com` dans les 4 fichiers `values*.yaml`. `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec les nouveaux domaines. Questions ouvertes "nom de domaine" et "stratégie de branches" déplacées en section 4 (résolues) ; ajout de deux nouvelles questions ouvertes : création des enregistrements DNS chez le registrar de `romainmurier.com`, et mise à jour de `Cors:FrontendOrigin` pour uat/prod maintenant que les domaines sont connus. |
 | 2026-10-14 | Docker/WSL toujours indisponible dans cette session (vérifié à nouveau, inchangé depuis le 2026-10-12) — tests d'intégration C# toujours bloqués, pas une régression. Mise en place de Jest côté frontend (config absente malgré les dépendances déjà présentes dans `package.json`) : `jest.config.js`/`jest.setup.ts`, 5 suites/12 tests (logique pure + rendu composants), intégrés à `ci.yml`. Au passage, `npm install` a dû être relancé car `node_modules/.bin/jest` manquait malgré la présence du package dans `node_modules/jest` — lockfile désynchronisé d'une session précédente. |
+| 2026-10-15 | Utilisateur remarque que `KUBE_CONFIG_B64` était dupliqué 3× dans Infisical (dev/uat/prod) alors que les 3 environnements tournent sur le **même cluster OVH physique** — ce n'est pas un secret qui varie par environnement, contrairement aux secrets applicatifs. Décision : séparation stricte actée en section 4 — GitHub (secrets d'**environnement**, un par dev/uat/production) pour les secrets d'infra CI/CD (`KUBE_CONFIG_B64`, `SONAR_*`), Infisical pour les seuls secrets applicatifs, synchronisés en continu vers K8s par l'opérateur (`resyncInterval: 60`) indépendamment de la CI. `cd.yml` : suppression du step `Infisical/secrets-action` dans les 3 jobs de déploiement, lecture directe de `secrets.KUBE_CONFIG_B64`. Conséquence identifiée : `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` (créés en GitHub Secrets lors du setup initial) ne sont plus utilisés par la CI — à supprimer ou réutiliser pour le Secret K8s `infisical-machine-identity` de l'opérateur. Point de vigilance signalé (non corrigé, vérification utilisateur requise) : `infisical.projectId` dans `values.yaml` contient un UUID alors que le champ CRD `projectSlug` attend le slug lisible du projet. |
 
 ---
 

@@ -115,7 +115,7 @@ sqlServer:
 infisical:
   enabled: true
   hostApiUrl: "https://app.infisical.com/api"  # TODO si instance auto-hébergée — voir README section 12
-  projectId: "CHANGE_ME"                        # TODO — voir README section 12
+  projectId: "29ff6457-51ec-40b2-9b29-685336061df1"                        # TODO — voir README section 12
   environmentSlug: dev                           # doit correspondre à .Values.global.environment
   secretsPath: "/"
   # Nom du Kubernetes Secret (type Opaque) authentifiant l'opérateur Infisical (universal auth),

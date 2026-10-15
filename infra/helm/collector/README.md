@@ -36,9 +36,10 @@ Toutes synchronisées automatiquement vers le Secret K8s `collector-secrets` par
 | `MSSQL_SA_PASSWORD` | Les 5 StatefulSets SQL Server (même mot de passe que ci-dessus) |
 | `RabbitMq__UserName` / `RabbitMq__Password` | RabbitMQ (StatefulSet) + tous les services consommateurs |
 
-Egalement pour la CI (secrets d'infra, pas d'app — bootstrap minimal requis en GitHub Secrets) :
-`INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` (machine identity CI), et dans Infisical
-(env dev/uat/prod) : `KUBE_CONFIG_B64` (kubeconfig du cluster OVH, encodé base64).
+**`KUBE_CONFIG_B64` n'est volontairement PAS dans cette liste** : c'est un secret d'infra CI/CD, pas
+un secret applicatif — il vit en secret d'**environnement GitHub** (`Settings > Environments >
+dev/uat/production > Environment secrets`, une valeur par environnement même si c'est le même
+cluster physique), lu directement par `cd.yml`. Le pipeline CI/CD ne contacte jamais Infisical.
 
 ## Déploiement manuel (hors CI, pour test local)
 

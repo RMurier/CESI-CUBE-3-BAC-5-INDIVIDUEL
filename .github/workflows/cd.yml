@@ -4,6 +4,14 @@ name: CD
 # uat     -> déploiement auto sur uat
 # master  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
 #            à configurer une fois dans Settings > Environments — pas automatisable depuis ce fichier).
+#
+# Séparation des secrets : KUBE_CONFIG_B64 (accès au cluster, secret d'infra CI) vit dans les
+# secrets de CHAQUE environnement GitHub (dev/uat/production) — jamais dans Infisical, qui ne
+# contient que les secrets applicatifs (Jwt signing key, connection strings SQL, RabbitMQ...).
+# Ces secrets applicatifs ne passent jamais par ce pipeline : l'Infisical Secrets Operator,
+# installé dans le cluster, les synchronise lui-même en continu (resyncInterval: 60s, voir
+# templates/infisical-secret.yaml) directement depuis Infisical vers le Secret K8s de chaque
+# namespace — un changement de valeur dans Infisical est donc reflété sans redéploiement CI/CD.
 on:
   push:
     branches: [develop, uat, master]
@@ -74,20 +82,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
 
-      # Secrets d'infra CI (kubeconfig) récupérés depuis Infisical (env "dev"), pas dupliqués en
-      # GitHub Secrets — seuls INFISICAL_CLIENT_ID/SECRET (machine identity CI) sont bootstrap
-      # en GitHub Secrets. Action/version à revérifier contre la doc Infisical actuelle.
-      - uses: Infisical/secrets-action@v1.0.9
-        with:
-          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
-          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          project-slug: collector
-          env-slug: dev
-          export-type: env
-
       - name: Déployer sur K3s (namespace collector-dev)
         run: |
-          echo "$KUBE_CONFIG_B64" | base64 -d > kubeconfig.yaml
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > kubeconfig.yaml
           helm upgrade --install collector infra/helm/collector \
             -f infra/helm/collector/values-dev.yaml \
             --namespace collector-dev --create-namespace \
@@ -105,17 +102,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
 
-      - uses: Infisical/secrets-action@v1.0.9
-        with:
-          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
-          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          project-slug: collector
-          env-slug: uat
-          export-type: env
-
       - name: Déployer sur K3s (namespace collector-uat)
         run: |
-          echo "$KUBE_CONFIG_B64" | base64 -d > kubeconfig.yaml
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > kubeconfig.yaml
           helm upgrade --install collector infra/helm/collector \
             -f infra/helm/collector/values-uat.yaml \
             --namespace collector-uat --create-namespace \
@@ -133,17 +122,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
 
-      - uses: Infisical/secrets-action@v1.0.9
-        with:
-          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
-          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          project-slug: collector
-          env-slug: prod
-          export-type: env
-
       - name: Déployer sur K3s (namespace collector-prod)
         run: |
-          echo "$KUBE_CONFIG_B64" | base64 -d > kubeconfig.yaml
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > kubeconfig.yaml
           helm upgrade --install collector infra/helm/collector \
             -f infra/helm/collector/values-prod.yaml \
             --namespace collector-prod --create-namespace \

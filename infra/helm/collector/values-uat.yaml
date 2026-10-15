@@ -7,7 +7,7 @@ global:
 sqlServerEdition: Developer
 
 infisical:
-  environmentSlug: uat
+  environmentSlug: staging
 
 services:
   identity:
