@@ -36,7 +36,9 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "collector.secretName" $root }}
-                  key: MSSQL_SA_PASSWORD
+                  # Mot de passe sa dédié par service (pas un secret partagé entre les 5 instances) :
+                  # une base compromise ne donne pas accès aux 4 autres. Voir README section 4.
+                  key: {{ printf "MSSQL_SA_PASSWORD__%s" $name }}
           volumeMounts:
             - name: data
               mountPath: /var/opt/mssql

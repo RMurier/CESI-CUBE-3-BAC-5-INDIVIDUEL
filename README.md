@@ -147,6 +147,8 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Load testing | Siege ou JMeter (cité dans les consignes) | — | Outil précis non tranché, voir questions ouvertes |
 | Stratégie de branches | **`develop`→dev, `uat`→uat, `master`→prod** (push direct, pas de tags), déploiement prod protégé par l'environnement GitHub "production" (reviewer requis) | 2026-10-14 | Le repo utilise `master` comme branche par défaut (pas `main`) — alignement du pipeline CD sur les branches réelles, schéma tag-based abandonné pour rester simple en solo dev |
 | Nom de domaine | **romainmurier.com** : `dev.collector.romainmurier.com` (dev), `uat.collector.romainmurier.com` (uat), `collector.romainmurier.com` (prod) | 2026-10-14 | Domaine personnel de l'utilisateur, déjà configurable (DNS + cert-manager/Let's Encrypt) |
+| Séparation des secrets | **GitHub** (secrets de **repo**, une seule valeur de chaque) = secrets d'infra CI/CD : `KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, `SONAR_HOST_URL`/`SONAR_TOKEN`. **Infisical** = secrets applicatifs uniquement, jamais lus par la CI — synchronisés en continu vers K8s par l'Infisical Secrets Operator (`resyncInterval: 60`), dont le Secret d'auth (`infisical-machine-identity`) est lui-même reprovisionné à chaque déploiement via `--set` depuis les GitHub Secrets ci-dessus | 2026-10-15 | Les 3 environnements tournent sur le **même cluster OVH physique** : ce sont des valeurs identiques pour dev/uat/prod, donc secret de repo (pas de secret d'environnement — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production`, dupliquer la valeur n'ajoutait aucune barrière réelle en plus). Objectif annexe : changer de serveur (nouveau `KUBE_CONFIG_B64`) ne doit demander aucune étape manuelle côté Infisical — satisfait en faisant provisionner `infisical-machine-identity` par le chart lui-même |
+| Mot de passe SQL Server par service | `MSSQL_SA_PASSWORD__<service>` : **une valeur `sa` distincte par service** (5 clés Infisical, pas 1 partagée) | 2026-10-16 | Avoir 5 instances SQL Server isolées mais un seul mot de passe `sa` partagé entre elles annulait une partie du bénéfice de l'isolation (critère grille #2) : une connection string qui fuite donnait accès `sa` aux 4 autres bases. Le mot de passe varie aussi naturellement par environnement puisque dev/staging/prod sont des scopes Infisical séparés |
 
 ---
 
@@ -295,10 +297,30 @@ flowchart TD
     F -->|push master| I["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
 ```
 
-Secrets de pipeline (kubeconfig, identifiants SonarQube) récupérés **depuis Infisical** pendant le job
-(`Infisical/secrets-action`), pas dupliqués en GitHub Secrets — seuls `INFISICAL_CLIENT_ID` /
-`INFISICAL_CLIENT_SECRET` (machine identity CI) sont un bootstrap minimal stocké en GitHub Secrets,
-avec `SONAR_HOST_URL` / `SONAR_TOKEN` (CI uniquement, pas des secrets runtime applicatifs).
+**Séparation stricte des deux magasins de secrets** (décision 2026-10-15, voir section 4) :
+- **GitHub** (Secrets de **repo** — une seule valeur de chaque, les 3 environnements tournant sur
+  le même cluster physique) : uniquement des secrets d'**infra CI/CD** — `KUBE_CONFIG_B64` (accès
+  au cluster OVH), `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` (clientId/clientSecret de la
+  Machine Identity Infisical), `SONAR_HOST_URL`/`SONAR_TOKEN`. Le pipeline ne lit **jamais** de
+  secret applicatif depuis Infisical : il décode `KUBE_CONFIG_B64` pour parler au cluster, et passe
+  `INFISICAL_CLIENT_ID`/`SECRET` à Helm via `--set-string` pour (re)créer le Secret K8s
+  `infisical-machine-identity` à chaque déploiement (`templates/infisical-machine-identity.yaml`)
+  — c'est tout ce dont l'opérateur Infisical a besoin pour s'authentifier lui-même ensuite.
+- **Infisical** : uniquement des secrets **applicatifs** (`Jwt__SigningKey`, `ConnectionStrings__*`,
+  5× `MSSQL_SA_PASSWORD__<service>` — un mot de passe `sa` **distinct par service**, pas une valeur
+  partagée entre les 5 instances SQL Server, voir section 4 —, `RabbitMq__UserName`/`Password`).
+  Ils ne transitent **jamais** par ce
+  pipeline — l'Infisical Secrets Operator, installé une fois au niveau cluster, les synchronise lui
+  même en continu depuis Infisical vers le Secret K8s de chaque namespace
+  (`resyncInterval: 60`, `templates/infisical-secret.yaml`) : changer une valeur dans Infisical la
+  propage automatiquement en ~60s, sans passer par la CI.
+
+**Automatisation du changement de serveur** : si le cluster OVH change un jour, seul
+`KUBE_CONFIG_B64` doit être mis à jour dans GitHub Secrets — le prochain push redéploie et
+reprovisionne automatiquement `infisical-machine-identity` dans les 3 namespaces (plus de
+`kubectl create secret` manuel). Seuls les prérequis vraiment cluster-level (Traefik, cert-manager,
+l'opérateur Infisical lui-même) restent une installation manuelle unique sur le nouveau cluster,
+voir `infra/helm/collector/README.md`.
 
 ---
 
@@ -477,8 +499,8 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 > question est résolue en session, **déplacer la décision dans la section 4** et cocher ici.
 
 ### Priorité haute (bloquantes pour un vrai déploiement)
-- [ ] **Accès au cluster OVH** : récupération du kubeconfig, encodage en base64, dépôt dans Infisical
-      sous la clé `KUBE_CONFIG_B64` (env dev/uat/prod) — voir `infra/helm/collector/README.md`.
+- [ ] **Accès au cluster OVH** : récupération du kubeconfig, encodage en base64, dépôt en secret de
+      **repo** GitHub sous la clé `KUBE_CONFIG_B64` — voir `infra/helm/collector/README.md`.
       **Point d'attention dimensionnement** : 5 instances SQL Server + RabbitMQ par environnement
       (×3 environnements = 15 StatefulSets SQL Server au total) — chaque instance consomme
       typiquement ≥ 2 Go de RAM même en édition Developer. Vérifier que le serveur OVH a la capacité ;
@@ -486,9 +508,10 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **SonarQube auto-hébergé** : URL du serveur (`SONAR_HOST_URL`) + token (`SONAR_TOKEN`) à ajouter
       en GitHub Secrets, et vérifier que les runners GitHub-hosted (IP publiques) peuvent l'atteindre
       (sinon prévoir un runner self-hosted ou ouvrir le firewall OVH).
-- [ ] **Infisical** : confirmer `projectSlug: collector` (utilisé dans les templates Helm et `cd.yml`)
-      correspond au vrai nom de projet Infisical, et que les 3 environnements `dev`/`uat`/`prod` y
-      sont bien créés avec les clés listées dans `infra/helm/collector/README.md`.
+- [ ] **Infisical, environnements du projet** : confirmer que les 3 environnements sont bien créés
+      avec les clés listées dans `infra/helm/collector/README.md` (note : `values-uat.yaml` pointe
+      déjà vers `environmentSlug: staging` — le projet Infisical de l'utilisateur utilise les noms
+      par défaut dev/staging/prod plutôt que dev/uat/prod, à garder cohérent).
 - [ ] **Infisical Secrets Operator + cert-manager** : confirmer qu'ils seront installés au niveau
       cluster (prérequis documentés dans `infra/helm/collector/README.md`, hors scope du chart lui-même).
 - [ ] **Propriétaire GitHub réel** : remplacer `CHANGE_ME` dans `global.imageRegistry` (values*.yaml)
@@ -519,9 +542,12 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **Convention de commits** : Conventional Commits ou libre ? (la stratégie de branches
       elle-même est tranchée, voir section 4 — `develop`→dev, `uat`→uat, `master`→prod).
 - [ ] **Repo GitHub public ou privé** ? Impacte la visibilité pour le jury et l'accessibilité GHCR.
-- [ ] **Clés Infisical à renseigner** avant le premier déploiement réel (liste complète dans
-      `infra/helm/collector/README.md`) : `Jwt__SigningKey`, 5× `ConnectionStrings__<service>`,
-      `MSSQL_SA_PASSWORD`, `RabbitMq__UserName`/`Password`, `KUBE_CONFIG_B64`.
+- [ ] **Clés Infisical à renseigner** avant le premier déploiement réel — uniquement des secrets
+      **applicatifs** (liste complète dans `infra/helm/collector/README.md`) : `Jwt__SigningKey`,
+      5× `ConnectionStrings__<service>`, 5× `MSSQL_SA_PASSWORD__<service>` (un mot de passe
+      **distinct par service**, pas une valeur partagée), `RabbitMq__UserName`/`Password`.
+      `KUBE_CONFIG_B64` n'est plus dans Infisical (voir section 4, décision "Séparation des
+      secrets") : c'est un secret de **repo** GitHub désormais.
 - [ ] **Validation réelle des Dockerfiles** : toujours non testée — le CLI `docker` est présent sur
       l'hôte Windows mais l'**intégration WSL de Docker Desktop n'est pas activée** pour cette
       distro (`Settings → Resources → WSL Integration`, à faire manuellement). Une fois activée,
@@ -558,6 +584,9 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-13 | Développement du parcours métier frontend demandé en priorité (plutôt que Phase B événementielle ou tests manquants, voir choix explicite). Squelette `create-next-app` remplacé par les pages réelles catalogue/login/register/compte/boutique/notifications câblées sur Identity+Catalog+Notification (détail section 10.1) ; achat et chat exclus car respectivement non supportés côté backend et hors fil rouge retenu. CORS + `launchSettings.json` (ports fixes) ajoutés aux services concernés pour permettre l'exécution locale multi-services. `npm run build`/`lint` vérifiés verts après correction d'un conflit entre le SPA 100% client et les flags expérimentaux `cacheComponents`/`partialPrefetching` du scaffold (désactivés, inutiles ici). Commit poussé sur `origin/master`. |
 | 2026-10-14 | Mise en place du pipeline CI/CD multi-env demandée : `develop`→dev, `uat`→uat, `master`→prod (le repo utilise `master`, pas `main` — bug latent corrigé au passage, le trigger `main` ne s'était jamais déclenché). `cd.yml` repensé en push direct sur les 3 branches (schéma tag `v*` abandonné, tag d'image toujours `sha-<courte>`), `deploy-prod` reste protégé par l'environnement GitHub "production" (reviewer requis). `ci.yml` aligné sur les mêmes 3 branches. Domaine réel fourni par l'utilisateur (`romainmurier.com`) : `dev.collector.romainmurier.com` / `uat.collector.romainmurier.com` / `collector.romainmurier.com`, remplace les placeholders `CHANGE_ME.example.com` dans les 4 fichiers `values*.yaml`. `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec les nouveaux domaines. Questions ouvertes "nom de domaine" et "stratégie de branches" déplacées en section 4 (résolues) ; ajout de deux nouvelles questions ouvertes : création des enregistrements DNS chez le registrar de `romainmurier.com`, et mise à jour de `Cors:FrontendOrigin` pour uat/prod maintenant que les domaines sont connus. |
 | 2026-10-14 | Docker/WSL toujours indisponible dans cette session (vérifié à nouveau, inchangé depuis le 2026-10-12) — tests d'intégration C# toujours bloqués, pas une régression. Mise en place de Jest côté frontend (config absente malgré les dépendances déjà présentes dans `package.json`) : `jest.config.js`/`jest.setup.ts`, 5 suites/12 tests (logique pure + rendu composants), intégrés à `ci.yml`. Au passage, `npm install` a dû être relancé car `node_modules/.bin/jest` manquait malgré la présence du package dans `node_modules/jest` — lockfile désynchronisé d'une session précédente. |
+| 2026-10-15 | Utilisateur remarque que `KUBE_CONFIG_B64` était dupliqué 3× dans Infisical (dev/uat/prod) alors que les 3 environnements tournent sur le **même cluster OVH physique** — ce n'est pas un secret qui varie par environnement, contrairement aux secrets applicatifs. Décision : séparation stricte actée en section 4 — GitHub (secrets d'**environnement**, un par dev/uat/production) pour les secrets d'infra CI/CD (`KUBE_CONFIG_B64`, `SONAR_*`), Infisical pour les seuls secrets applicatifs, synchronisés en continu vers K8s par l'opérateur (`resyncInterval: 60`) indépendamment de la CI. `cd.yml` : suppression du step `Infisical/secrets-action` dans les 3 jobs de déploiement, lecture directe de `secrets.KUBE_CONFIG_B64`. Conséquence identifiée : `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` (créés en GitHub Secrets lors du setup initial) ne sont plus utilisés par la CI — à supprimer ou réutiliser pour le Secret K8s `infisical-machine-identity` de l'opérateur. Point de vigilance signalé (non corrigé, vérification utilisateur requise) : `infisical.projectId` dans `values.yaml` contient un UUID alors que le champ CRD `projectSlug` attend le slug lisible du projet. |
+| 2026-10-15 | Utilisateur conteste le choix "secret d'environnement" pour une valeur strictement identique dans les 3 environnements : révision — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production` (barrière indépendante de l'emplacement du secret), donc dupliquer la valeur n'apportait pas le bénéfice annoncé. `KUBE_CONFIG_B64` redevient un secret de **repo** unique (aucun changement de code requis, `secrets.KUBE_CONFIG_B64` résout pareil dans les deux cas). Demande complémentaire : automatiser la liaison cluster↔Infisical pour qu'un changement de serveur ne nécessite aucune étape manuelle — ajout de `templates/infisical-machine-identity.yaml` (Secret K8s provisionné à chaque déploiement Helm, alimenté par `cd.yml` via `--set-string` depuis les GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, réutilisés plutôt que supprimés), qui remplace le `kubectl create secret` manuel documenté jusque-là. Recherche web sur le CRD `InfisicalSecret` : `secretsScope` accepte `projectId` **ou** `projectSlug` (un seul des deux) — correction du template `infisical-secret.yaml` pour utiliser `projectId` (la valeur déjà présente dans `values.yaml` est bien un UUID de projet, pas un slug à chercher ailleurs). `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec ces changements. |
+| 2026-10-16 | Utilisateur pointe deux problèmes en préparant les clés Infisical applicatives. (1) `MSSQL_SA_PASSWORD` partagé entre les 5 StatefulSets SQL Server annulait une partie du bénéfice de l'isolation par instance — corrigé en clés distinctes `MSSQL_SA_PASSWORD__<service>` (`templates/sqlserver/statefulsets.yaml`, `infra/helm/collector/README.md`, section 4). (2) `Jwt__SigningKey` générée avec `openssl rand -base64 64` sort sur 2 lignes (wrap par défaut à 64 caractères) — à risque si le `\n` est géré différemment selon la couche (Infisical → Secret K8s → config .NET), recommandation de générer avec `| tr -d '\n'` pour une valeur sur une seule ligne. `global.imageRegistry` fixé à `ghcr.io/rmurier` ; bug latent corrigé au passage dans `cd.yml` (`github.repository_owner` gardait la casse réelle `RMurier`, incompatible avec les noms de repo GHCR qui doivent être en minuscule). |
 
 ---
 

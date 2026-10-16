@@ -1,0 +1,16 @@
+{{- if .Values.infisical.enabled }}
+# Provisionné à CHAQUE déploiement Helm (cd.yml passe clientId/clientSecret via --set, depuis les
+# GitHub Secrets INFISICAL_CLIENT_ID/INFISICAL_CLIENT_SECRET) : plus besoin de créer ce Secret à la
+# main via kubectl avant le premier déploiement. Changer de serveur = changer KUBE_CONFIG_B64 dans
+# les GitHub Secrets, ce Secret (et donc la liaison avec Infisical) se recrée seul au déploiement
+# suivant. Référencé par templates/infisical-secret.yaml (credentialsRef).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.infisical.machineIdentitySecretName }}
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  clientId: {{ .Values.infisical.machineIdentity.clientId | quote }}
+  clientSecret: {{ .Values.infisical.machineIdentity.clientSecret | quote }}
+{{- end }}
