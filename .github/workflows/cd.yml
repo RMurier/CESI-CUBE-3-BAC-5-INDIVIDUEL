@@ -16,6 +16,12 @@ name: CD
 # `infisical-machine-identity` qui authentifie cet opérateur est lui-même provisionné à chaque
 # déploiement via --set ci-dessous (voir templates/infisical-machine-identity.yaml) : changer de
 # serveur = changer KUBE_CONFIG_B64, le reste se reconfigure automatiquement au prochain déploiement.
+#
+# Les 3 jobs de déploiement tournent sur le runner self-hosted installé sur le serveur qui héberge
+# le cluster k3s lui-même (pas un runner GitHub-hosted) : l'API Kubernetes est donc jointe en local
+# (le KUBE_CONFIG_B64 généré par k3s, avec son 127.0.0.1 par défaut, fonctionne tel quel — pas besoin
+# de le pointer vers une IP publique). Seul build-and-push reste sur un runner GitHub-hosted, puisqu'il
+# n'a besoin que d'accéder à GHCR, pas au cluster.
 on:
   push:
     branches: [develop, uat, master]
@@ -85,7 +91,7 @@ jobs:
     name: Déploiement dev
     if: github.ref == 'refs/heads/develop'
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -107,7 +113,7 @@ jobs:
     name: Déploiement uat
     if: github.ref == 'refs/heads/uat'
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: uat
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +135,7 @@ jobs:
     name: Déploiement prod
     if: github.ref == 'refs/heads/master'
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)
     steps:
       - uses: actions/checkout@v4
