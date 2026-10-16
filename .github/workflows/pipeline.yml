@@ -1,5 +1,10 @@
-name: CD
+name: CI/CD
 
+# Pipeline unique : qualité (backend/frontend) -> build & push d'images -> déploiement.
+# backend/frontend tournent sur PR et sur push ; build-and-push et les 3 jobs de déploiement ne
+# tournent QUE sur push (jamais sur une PR) et exigent explicitement que backend ET frontend aient
+# réussi (needs) — un test qui échoue bloque donc tout déploiement, pas seulement un warning.
+#
 # develop -> déploiement auto sur dev
 # uat     -> déploiement auto sur uat
 # master  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
@@ -20,9 +25,12 @@ name: CD
 # Les 3 jobs de déploiement tournent sur le runner self-hosted installé sur le serveur qui héberge
 # le cluster k3s lui-même (pas un runner GitHub-hosted) : l'API Kubernetes est donc jointe en local
 # (le KUBE_CONFIG_B64 généré par k3s, avec son 127.0.0.1 par défaut, fonctionne tel quel — pas besoin
-# de le pointer vers une IP publique). Seul build-and-push reste sur un runner GitHub-hosted, puisqu'il
+# de le pointer vers une IP publique). build-and-push reste sur un runner GitHub-hosted, puisqu'il
 # n'a besoin que d'accéder à GHCR, pas au cluster.
+
 on:
+  pull_request:
+    branches: [develop, uat, master]
   push:
     branches: [develop, uat, master]
 
@@ -31,8 +39,78 @@ permissions:
   packages: write
 
 jobs:
+  backend:
+    name: Backend (.NET) — build, tests, Sonar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # requis par SonarScanner pour l'analyse des blames/nouveau code
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-java@v4 # requis par le scanner Sonar (JVM)
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dotnet-sonarscanner
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Restore
+        run: dotnet restore src/Collector.sln
+
+      - name: Sonar begin
+        run: >
+          dotnet sonarscanner begin
+          /k:"collector-shop"
+          /d:sonar.host.url="${{ secrets.SONAR_HOST_URL }}"
+          /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          /d:sonar.cs.vstest.reportsPaths="**/*.trx"
+          /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+
+      - name: Build
+        run: dotnet build src/Collector.sln --no-restore -c Release
+
+      - name: Test (unitaires + intégration) avec couverture
+        run: >
+          dotnet test src/Collector.sln --no-build -c Release
+          --logger "trx"
+          /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+      - name: Scan de vulnérabilités des dépendances NuGet
+        run: dotnet list src/Collector.sln package --vulnerable --include-transitive
+
+      - name: Sonar end
+        run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+  frontend:
+    name: Frontend (Next.js) — lint, tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/frontend/web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --ci
+      - run: npm audit --audit-level=high
+      - run: npm run build
+
   build-and-push:
     name: Build & push images (${{ matrix.service }})
+    if: github.event_name == 'push'
+    needs: [backend, frontend]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -89,7 +167,7 @@ jobs:
 
   deploy-dev:
     name: Déploiement dev
-    if: github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs: build-and-push
     runs-on: self-hosted
     environment: dev
@@ -111,7 +189,7 @@ jobs:
 
   deploy-uat:
     name: Déploiement uat
-    if: github.ref == 'refs/heads/uat'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/uat'
     needs: build-and-push
     runs-on: self-hosted
     environment: uat
@@ -133,7 +211,7 @@ jobs:
 
   deploy-prod:
     name: Déploiement prod
-    if: github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build-and-push
     runs-on: self-hosted
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)

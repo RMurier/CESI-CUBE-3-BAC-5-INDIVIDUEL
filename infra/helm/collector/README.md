@@ -13,7 +13,7 @@ Un seul chart, une valeur par environnement. Déployer sur dev/uat/prod ne chang
 4. Une Machine Identity Infisical (Universal Auth) existante, avec son `clientId`/`clientSecret` — le
    Secret K8s `infisical-machine-identity` qui authentifie l'opérateur dans chaque namespace est
    provisionné **automatiquement à chaque déploiement Helm** par `templates/infisical-machine-identity.yaml`,
-   alimenté par `cd.yml` via `--set-string infisical.machineIdentity.clientId/clientSecret` depuis
+   alimenté par `pipeline.yml` via `--set-string infisical.machineIdentity.clientId/clientSecret` depuis
    les GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` — plus de `kubectl create
    secret` manuel, et changer de serveur (nouveau `KUBE_CONFIG_B64`) n'exige aucune étape
    supplémentaire : le prochain déploiement recrée tout.
@@ -44,7 +44,7 @@ doit utiliser le `MSSQL_SA_PASSWORD__<service>` **du même service**, jamais cel
 **`KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID` et `INFISICAL_CLIENT_SECRET` ne sont volontairement PAS
 dans cette liste** : ce sont des secrets d'infra CI/CD, pas des secrets applicatifs — même cluster
 physique pour les 3 environnements, donc une seule valeur de chaque, en secrets de **repo** GitHub
-(`Settings > Secrets and variables > Actions > Repository secrets`), lus directement par `cd.yml`.
+(`Settings > Secrets and variables > Actions > Repository secrets`), lus directement par `pipeline.yml`.
 Le pipeline CI/CD ne lit jamais les secrets applicatifs d'Infisical ; il se contente de
 provisionner le Secret K8s qui permet à l'opérateur Infisical (dans le cluster) de les récupérer
 lui-même (voir `templates/infisical-machine-identity.yaml`).

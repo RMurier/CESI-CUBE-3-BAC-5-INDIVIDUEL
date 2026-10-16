@@ -283,14 +283,18 @@ Le pipeline CI/CD doit intégrer **au minimum 2 types de tests** parmi unitaire/
 
 ## 7. Pipeline CI/CD (GitHub Actions — implémenté dans `.github/workflows/`)
 
-Deux workflows séparés : `ci.yml` (qualité, sur PR/push) et `cd.yml` (build image + déploiement).
+Un seul workflow, `pipeline.yml` (qualité + build + déploiement) — pas deux fichiers séparés comme au
+début : `build-and-push` et les 3 jobs de déploiement dépendent explicitement (`needs:`) de `backend`
+**et** `frontend`, donc un test qui échoue bloque tout le reste du pipeline (pas juste un warning
+affiché à côté). `backend`/`frontend` tournent sur PR et push ; `build-and-push` et les déploiements
+ne tournent que sur push (jamais sur une PR).
 
 ```mermaid
 flowchart TD
-    A["push / PR (develop, uat, master)"] --> B["ci.yml : build + tests<br/>(.NET : dotnet build/test, Testcontainers)"]
-    B --> C["ci.yml : SonarQube scan<br/>(serveur auto-hébergé)"]
-    C --> D["ci.yml : scan vulnérabilités NuGet<br/>+ frontend : lint, npm audit, build"]
-    D --> E["cd.yml : build image Docker par service (6)<br/>→ push GHCR + scan Trivy"]
+    A["push / PR (develop, uat, master)"] --> B["backend : build + tests<br/>(.NET : dotnet build/test, Testcontainers)"]
+    B --> C["backend : SonarQube scan<br/>(serveur auto-hébergé)"]
+    C --> D["backend : scan vulnérabilités NuGet<br/>frontend (en parallèle) : lint, npm audit, build"]
+    D --> E["build-and-push (push uniquement, needs backend+frontend)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
     E --> F{"Déclencheur ?"}
     F -->|push develop| G["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
     F -->|push uat| H["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
@@ -391,8 +395,9 @@ voir `infra/helm/collector/README.md`.
 │                                      rabbitmq.yaml, ingressroute.yaml, infisical-secret.yaml, configmap.yaml
 ├── load-tests/                     ← vide, scripts Siege/JMeter à ajouter (Phase C)
 └── .github/workflows/
-    ├── ci.yml                      ← build/test/Sonar (.NET) + lint/build (frontend)
-    └── cd.yml                      ← build+push 6 images GHCR, scan Trivy, déploiement dev/uat/prod
+    └── pipeline.yml                ← build/test/Sonar (.NET) + lint/build (frontend) -> build+push
+                                        6 images GHCR, scan Trivy -> déploiement dev/uat/prod (bloqué
+                                        si backend ou frontend échoue, voir section 7)
 ```
 
 **Ce qui est réellement fonctionnel aujourd'hui** : SDK .NET 10.0.100 installé en local
@@ -463,7 +468,7 @@ RabbitMQ), puis `dotnet run` dans chacun des 5 `src/services/*/*.Api/`, puis cô
 **Tests Jest (2026-10-14)** : config `next/jest` câblée (`jest.config.js`, `jest.setup.ts`,
 script `npm test`), **5 suites / 12 tests, tous verts** — logique pure (`decodeJwt`,
 `articleStatusLabel`, `known-shops`) + rendu de composants (`StatusBadge`, `ArticleCard`) avec
-React Testing Library. Intégré à `ci.yml` (`npm test -- --ci`, avant le build). Avec les suites
+React Testing Library. Intégré à `pipeline.yml` (`npm test -- --ci`, avant le build). Avec les suites
 unitaires C# déjà vertes (`Chat.Api.Tests`, `Moderation.Api.Tests`), ça couvre dès maintenant le
 minimum de 2 types de tests du critère #7 **sans dépendre du déblocage Docker/WSL** — les tests
 d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce blocage levé (section
@@ -517,7 +522,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **Propriétaire GitHub réel** : remplacer `CHANGE_ME` dans `global.imageRegistry` (values*.yaml)
       par `ghcr.io/<org-ou-user-github-réel>` une fois le repo créé sur GitHub.
 - [ ] **Environnement GitHub "production"** : à configurer manuellement dans Settings > Environments
-      avec reviewers requis (protection utilisée par `deploy-prod` dans `cd.yml`, non automatisable).
+      avec reviewers requis (protection utilisée par `deploy-prod` dans `pipeline.yml`, non automatisable).
 - [ ] **SQL Server en prod** : édition Developer non licenciée pour la production (cf. commentaire dans
       `values-prod.yaml`) — décider entre licence Standard/Enterprise payante ou bascule vers une offre
       managée (Azure SQL) avant un vrai déploiement prod.
@@ -587,6 +592,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-15 | Utilisateur remarque que `KUBE_CONFIG_B64` était dupliqué 3× dans Infisical (dev/uat/prod) alors que les 3 environnements tournent sur le **même cluster OVH physique** — ce n'est pas un secret qui varie par environnement, contrairement aux secrets applicatifs. Décision : séparation stricte actée en section 4 — GitHub (secrets d'**environnement**, un par dev/uat/production) pour les secrets d'infra CI/CD (`KUBE_CONFIG_B64`, `SONAR_*`), Infisical pour les seuls secrets applicatifs, synchronisés en continu vers K8s par l'opérateur (`resyncInterval: 60`) indépendamment de la CI. `cd.yml` : suppression du step `Infisical/secrets-action` dans les 3 jobs de déploiement, lecture directe de `secrets.KUBE_CONFIG_B64`. Conséquence identifiée : `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET` (créés en GitHub Secrets lors du setup initial) ne sont plus utilisés par la CI — à supprimer ou réutiliser pour le Secret K8s `infisical-machine-identity` de l'opérateur. Point de vigilance signalé (non corrigé, vérification utilisateur requise) : `infisical.projectId` dans `values.yaml` contient un UUID alors que le champ CRD `projectSlug` attend le slug lisible du projet. |
 | 2026-10-15 | Utilisateur conteste le choix "secret d'environnement" pour une valeur strictement identique dans les 3 environnements : révision — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production` (barrière indépendante de l'emplacement du secret), donc dupliquer la valeur n'apportait pas le bénéfice annoncé. `KUBE_CONFIG_B64` redevient un secret de **repo** unique (aucun changement de code requis, `secrets.KUBE_CONFIG_B64` résout pareil dans les deux cas). Demande complémentaire : automatiser la liaison cluster↔Infisical pour qu'un changement de serveur ne nécessite aucune étape manuelle — ajout de `templates/infisical-machine-identity.yaml` (Secret K8s provisionné à chaque déploiement Helm, alimenté par `cd.yml` via `--set-string` depuis les GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, réutilisés plutôt que supprimés), qui remplace le `kubectl create secret` manuel documenté jusque-là. Recherche web sur le CRD `InfisicalSecret` : `secretsScope` accepte `projectId` **ou** `projectSlug` (un seul des deux) — correction du template `infisical-secret.yaml` pour utiliser `projectId` (la valeur déjà présente dans `values.yaml` est bien un UUID de projet, pas un slug à chercher ailleurs). `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec ces changements. |
 | 2026-10-16 | Utilisateur pointe deux problèmes en préparant les clés Infisical applicatives. (1) `MSSQL_SA_PASSWORD` partagé entre les 5 StatefulSets SQL Server annulait une partie du bénéfice de l'isolation par instance — corrigé en clés distinctes `MSSQL_SA_PASSWORD__<service>` (`templates/sqlserver/statefulsets.yaml`, `infra/helm/collector/README.md`, section 4). (2) `Jwt__SigningKey` générée avec `openssl rand -base64 64` sort sur 2 lignes (wrap par défaut à 64 caractères) — à risque si le `\n` est géré différemment selon la couche (Infisical → Secret K8s → config .NET), recommandation de générer avec `| tr -d '\n'` pour une valeur sur une seule ligne. `global.imageRegistry` fixé à `ghcr.io/rmurier` ; bug latent corrigé au passage dans `cd.yml` (`github.repository_owner` gardait la casse réelle `RMurier`, incompatible avec les noms de repo GHCR qui doivent être en minuscule). |
+| 2026-10-16 | Session de mise en place infra en direct avec l'utilisateur sur un second serveur ("Omnia", maison, Tailscale, 31 Gi RAM/4 cores — bien plus confortable que le petit VPS OVH 11 Gi initialement prévu) : k3s installé, runner GitHub Actions self-hosted enregistré comme service systemd, cert-manager + `ClusterIssuer letsencrypt` (HTTP-01) créés, Infisical Secrets Operator installé via Helm. Clarification sur le critère grille #5 ("environnement managé") après lecture du texte exact de `Grille_eval_...xlsx` : la distinction porte sur l'orchestration (K3s/Helm/CI-CD) vs. "s'exécute en local sur l'hôte", pas sur l'hébergeur physique — héberger sur Omnia ne pénalise donc pas ce critère, contrairement à ce qui avait été dit par précaution dans l'échange précédent. Demande de fusionner `ci.yml`/`cd.yml` en un seul fichier avec tests bloquants pour le déploiement : remplacés par `pipeline.yml` unique, `build-and-push` et les 3 jobs de déploiement dépendent désormais explicitement (`needs: [backend, frontend]`) des jobs de qualité — un test en échec bloque tout déploiement. `cd.yml` passé en `runs-on: self-hosted` pour les 3 jobs de déploiement (le kubeconfig par défaut de k3s, avec son `127.0.0.1`, fonctionne tel quel puisque le job tourne localement sur Omnia). Reste en attente : vérification IP publique/CGNAT et port forwarding 80/443 chez l'utilisateur (pas faisable à distance), DNS, SonarQube. |
 
 ---
 
