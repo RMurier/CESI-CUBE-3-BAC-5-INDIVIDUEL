@@ -289,13 +289,16 @@ seul gros job "qualité", et surtout plus proche du schéma attendu par les cons
 parallèle (aucune dépendance entre eux) — unitaires et intégration sont volontairement deux jobs
 distincts (filtrés via `--filter "Category=Unit"` / `"Category=Integration"`, classes marquées
 `[Trait("Category", ...)]`) pour voir immédiatement, dans l'UI GitHub Actions, lequel des deux types
-échoue. `sonar` dépend des deux jobs de tests backend (inutile de lancer l'analyse si les tests de
-base échouent déjà) et réexécute son propre cycle build/test — redondant en apparence, mais requis :
-le scanner Sonar doit encadrer la compilation elle-même (`sonarscanner begin`/`end`), impossible de
-le brancher après coup sur un build déjà fait ailleurs. `build-and-push` exige (`needs:`) que les
-**cinq** jobs de qualité aient réussi : un test ou un scan en échec bloque tout déploiement, pas
-juste un warning affiché à côté. Tous les jobs de qualité tournent sur PR et push ; `build-and-push`
-et les 3 déploiements ne tournent que sur push (jamais sur une PR).
+échoue. `sonar` dépend des trois jobs de tests (backend unitaires + intégration + frontend —
+inutile de lancer l'analyse si les tests de base échouent déjà) et réexécute son propre cycle
+build/test côté .NET **et** côté frontend (Jest avec couverture, `sonar.javascript.lcov.reportPaths`)
+— redondant en apparence, mais requis : le scanner Sonar doit encadrer la compilation/les tests
+elle-même (`sonarscanner begin`/`end`), impossible de le brancher après coup sur un build déjà fait
+ailleurs. Une seule analyse Sonar couvre donc backend **et** frontend (pas deux projets séparés).
+`build-and-push` exige (`needs:`) que les **cinq** jobs de qualité aient réussi : un test ou un scan
+en échec bloque tout déploiement, pas juste un warning affiché à côté. Tous les jobs de qualité
+tournent sur PR et push ; `build-and-push` et les 3 déploiements ne tournent que sur push (jamais
+sur une PR).
 
 ```mermaid
 flowchart TD
@@ -303,8 +306,9 @@ flowchart TD
     A --> B2["test-backend-integration<br/>WebApplicationFactory + SQL Server (Testcontainers)"]
     A --> C["test-frontend<br/>npm lint + test (Jest) + build"]
     A --> D["vulnerabilities<br/>dotnet list --vulnerable (NuGet) + npm audit (frontend, prod only)"]
-    B --> E["sonar (needs test-backend-unit+integration)<br/>SonarQube scan, serveur auto-hébergé"]
+    B --> E["sonar (needs les 3 jobs de tests)<br/>SonarQube : backend (.NET+opencover) + frontend (lcov), un seul scan"]
     B2 --> E
+    C --> E
     B --> F["build-and-push<br/>(push uniquement, needs les 5 jobs qualité)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
     B2 --> F
     C --> F
@@ -608,6 +612,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-15 | Utilisateur conteste le choix "secret d'environnement" pour une valeur strictement identique dans les 3 environnements : révision — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production` (barrière indépendante de l'emplacement du secret), donc dupliquer la valeur n'apportait pas le bénéfice annoncé. `KUBE_CONFIG_B64` redevient un secret de **repo** unique (aucun changement de code requis, `secrets.KUBE_CONFIG_B64` résout pareil dans les deux cas). Demande complémentaire : automatiser la liaison cluster↔Infisical pour qu'un changement de serveur ne nécessite aucune étape manuelle — ajout de `templates/infisical-machine-identity.yaml` (Secret K8s provisionné à chaque déploiement Helm, alimenté par `cd.yml` via `--set-string` depuis les GitHub Secrets `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, réutilisés plutôt que supprimés), qui remplace le `kubectl create secret` manuel documenté jusque-là. Recherche web sur le CRD `InfisicalSecret` : `secretsScope` accepte `projectId` **ou** `projectSlug` (un seul des deux) — correction du template `infisical-secret.yaml` pour utiliser `projectId` (la valeur déjà présente dans `values.yaml` est bien un UUID de projet, pas un slug à chercher ailleurs). `helm lint`/`helm template` revérifiés verts sur les 3 environnements avec ces changements. |
 | 2026-10-16 | Utilisateur pointe deux problèmes en préparant les clés Infisical applicatives. (1) `MSSQL_SA_PASSWORD` partagé entre les 5 StatefulSets SQL Server annulait une partie du bénéfice de l'isolation par instance — corrigé en clés distinctes `MSSQL_SA_PASSWORD__<service>` (`templates/sqlserver/statefulsets.yaml`, `infra/helm/collector/README.md`, section 4). (2) `Jwt__SigningKey` générée avec `openssl rand -base64 64` sort sur 2 lignes (wrap par défaut à 64 caractères) — à risque si le `\n` est géré différemment selon la couche (Infisical → Secret K8s → config .NET), recommandation de générer avec `| tr -d '\n'` pour une valeur sur une seule ligne. `global.imageRegistry` fixé à `ghcr.io/rmurier` ; bug latent corrigé au passage dans `cd.yml` (`github.repository_owner` gardait la casse réelle `RMurier`, incompatible avec les noms de repo GHCR qui doivent être en minuscule). |
 | 2026-10-16 | Session de mise en place infra en direct avec l'utilisateur sur un second serveur ("Omnia", maison, Tailscale, 31 Gi RAM/4 cores — bien plus confortable que le petit VPS OVH 11 Gi initialement prévu) : k3s installé, runner GitHub Actions self-hosted enregistré comme service systemd, cert-manager + `ClusterIssuer letsencrypt` (HTTP-01) créés, Infisical Secrets Operator installé via Helm. Clarification sur le critère grille #5 ("environnement managé") après lecture du texte exact de `Grille_eval_...xlsx` : la distinction porte sur l'orchestration (K3s/Helm/CI-CD) vs. "s'exécute en local sur l'hôte", pas sur l'hébergeur physique — héberger sur Omnia ne pénalise donc pas ce critère, contrairement à ce qui avait été dit par précaution dans l'échange précédent. Demande de fusionner `ci.yml`/`cd.yml` en un seul fichier avec tests bloquants pour le déploiement : remplacés par `pipeline.yml` unique, `build-and-push` et les 3 jobs de déploiement dépendent désormais explicitement (`needs: [backend, frontend]`) des jobs de qualité — un test en échec bloque tout déploiement. `cd.yml` passé en `runs-on: self-hosted` pour les 3 jobs de déploiement (le kubeconfig par défaut de k3s, avec son `127.0.0.1`, fonctionne tel quel puisque le job tourne localement sur Omnia). Reste en attente : vérification IP publique/CGNAT et port forwarding 80/443 chez l'utilisateur (pas faisable à distance), DNS, SonarQube. |
+| 2026-10-16 | `pipeline.yml` découpé en jobs séparés par type d'étape (`test-backend-unit`, `test-backend-integration`, `test-frontend`, `vulnerabilities`, `sonar`) à la demande de l'utilisateur. Runs CI successifs sur `develop` ont révélé 2 vrais bugs applicatifs (pas des soucis d'infra) : (1) `Collector.Testing` (librairie de fixtures partagées, pas un projet de tests) détecté par erreur par `dotnet test` faute de `IsTestProject=false`, plantait sur une résolution d'assembly Azure.Core au lieu d'être simplement ignoré. (2) Catalog.Api.Tests échouait en 500 sur la création d'articles — message d'exception ajouté aux tests (`AssertStatusAsync` avec corps de réponse) pour diagnostiquer : `System.ArgumentNullException` dans `Guid.Parse(principal.FindFirstValue(JwtRegisteredClaimNames.Sub))`, causé par le remapping par défaut de `JwtSecurityTokenHandler` du claim court "sub" vers l'URI long historique — `options.MapInboundClaims = false` manquant sur `AddJwtBearer`. Même pattern trouvé et corrigé dans Identity.Api (`/auth/become-seller`) et Chat.Api (`ChatHub`), jamais détecté avant faute de tests d'intégration exécutables (Docker indisponible jusqu'ici). Ajout de `.runsettings` (`MaxCpuCount=1`) pour éviter que les 5 projets de tests d'intégration lancent leurs conteneurs SQL Server simultanément sur un runner CI modeste. À la demande de l'utilisateur, le job `sonar` couvre désormais aussi le frontend (Jest `--coverage` → lcov, `sonar.javascript.lcov.reportPaths`), une seule analyse Sonar pour les deux au lieu d'un scan .NET isolé. |
 
 ---
 

@@ -21,6 +21,10 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // Sans ça, JwtSecurityTokenHandler remappe "sub" vers l'URI long historique
+        // (ClaimTypes.NameIdentifier) à la lecture du token : FindFirstValue(JwtRegisteredClaimNames.Sub)
+        // renvoie alors toujours null, et Guid.Parse(null) lève une ArgumentNullException dans ChatHub.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,

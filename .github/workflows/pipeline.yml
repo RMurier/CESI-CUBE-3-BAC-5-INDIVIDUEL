@@ -116,8 +116,8 @@ jobs:
       - run: npm run build
 
   sonar:
-    name: Analyse SonarQube
-    needs: [test-backend-unit, test-backend-integration]
+    name: Analyse SonarQube (backend + frontend)
+    needs: [test-backend-unit, test-backend-integration, test-frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -133,15 +133,28 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/frontend/web/package-lock.json
+
       - name: Install dotnet-sonarscanner
         # Pin 10.4.1 (dernière release de la ligne 10.x) : la ligne 11.x a abandonné le support des
         # serveurs SonarQube antérieurs à 2025.1 — ce serveur auto-hébergé est en 10.7 (Community).
         run: dotnet tool install --global dotnet-sonarscanner --version 10.4.1
 
-      - name: Restore
+      - name: Restore (.NET)
         run: dotnet restore src/Collector.sln
 
+      - name: npm ci (frontend)
+        working-directory: src/frontend/web
+        run: npm ci
+
       - name: Sonar begin
+        # sonar.javascript.lcov.reportPaths : couverture frontend (générée par l'étape Jest
+        # ci-dessous) en plus de la couverture .NET (sonar.cs.opencover.reportsPaths) — une seule
+        # analyse couvrant backend + frontend, pas deux projets Sonar séparés.
         run: >
           dotnet sonarscanner begin
           /k:"collector-shop"
@@ -149,18 +162,25 @@ jobs:
           /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
           /d:sonar.cs.vstest.reportsPaths="**/*.trx"
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+          /d:sonar.javascript.lcov.reportPaths="src/frontend/web/coverage/lcov.info"
+          /d:sonar.exclusions="**/node_modules/**,**/.next/**,**/coverage/**"
 
       # Sonar doit encadrer la compilation + les tests elle-même (begin/end instrumentent le
-      # processus) — ce cycle est donc redondant avec le job test-backend, pas un doublon évitable.
-      - name: Build
+      # processus) — ce cycle est donc redondant avec test-backend-unit/integration et
+      # test-frontend, pas un doublon évitable.
+      - name: Build (.NET)
         run: dotnet build src/Collector.sln --no-restore -c Release
 
-      - name: Test avec couverture
+      - name: Test (.NET) avec couverture
         # --settings .runsettings : exécution séquentielle, voir test-backend-integration.
         run: >
           dotnet test src/Collector.sln --no-build -c Release
           --logger "trx" --settings .runsettings
           /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+      - name: Test (frontend) avec couverture
+        working-directory: src/frontend/web
+        run: npm test -- --ci --coverage
 
       - name: Sonar end
         run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"

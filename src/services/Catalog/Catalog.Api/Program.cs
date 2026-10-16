@@ -26,6 +26,11 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // Sans ça, JwtSecurityTokenHandler remappe "sub" vers l'URI long historique
+        // (ClaimTypes.NameIdentifier) à la lecture du token : FindFirstValue(JwtRegisteredClaimNames.Sub)
+        // renvoie alors toujours null, et Guid.Parse(null) lève une ArgumentNullException (500) sur
+        // tout endpoint qui lit l'identité de l'appelant.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
