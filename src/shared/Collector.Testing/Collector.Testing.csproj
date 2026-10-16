@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Librairie de fixtures/aides partagées (consommée via ProjectReference par les *.Api.Tests),
+         pas un projet de tests lui-même — sans ce flag, "dotnet test" sur toute la solution le
+         détecte comme candidat (il référence xunit) et tente de lancer un test-host pour son .dll,
+         qui échoue à la résolution d'assembly car il lui manque Microsoft.NET.Test.Sdk. -->
+    <IsTestProject>false</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
