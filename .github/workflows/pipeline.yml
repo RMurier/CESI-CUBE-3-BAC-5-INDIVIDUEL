@@ -1,9 +1,16 @@
 name: CI/CD
 
-# Pipeline unique : qualité (backend/frontend) -> build & push d'images -> déploiement.
-# backend/frontend tournent sur PR et sur push ; build-and-push et les 3 jobs de déploiement ne
-# tournent QUE sur push (jamais sur une PR) et exigent explicitement que backend ET frontend aient
-# réussi (needs) — un test qui échoue bloque donc tout déploiement, pas seulement un warning.
+# Pipeline unique, en jobs séparés par type d'étape :
+#   test-backend ─┐
+#   test-frontend ─┼──→ sonar (needs test-backend) ─┐
+#   vulnerabilities ┘                                 ├──→ build-and-push ──→ deploy-dev/uat/prod
+#                                                      ┘
+# test-backend/test-frontend/vulnerabilities tournent en parallèle (aucune dépendance entre eux).
+# sonar réutilise son propre cycle restore/build/test (requis par le scanner, qui doit encadrer la
+# compilation elle-même) mais needs: test-backend — pas la peine de lancer l'analyse Sonar si les
+# tests de base échouent déjà. build-and-push exige que LES QUATRE jobs de qualité aient réussi
+# (needs), donc un test/scan en échec bloque tout déploiement, pas seulement un warning.
+# build-and-push et les 3 jobs de déploiement ne tournent QUE sur push (jamais sur une PR).
 #
 # develop -> déploiement auto sur dev
 # uat     -> déploiement auto sur uat
@@ -25,8 +32,7 @@ name: CI/CD
 # Les 3 jobs de déploiement tournent sur le runner self-hosted installé sur le serveur qui héberge
 # le cluster k3s lui-même (pas un runner GitHub-hosted) : l'API Kubernetes est donc jointe en local
 # (le KUBE_CONFIG_B64 généré par k3s, avec son 127.0.0.1 par défaut, fonctionne tel quel — pas besoin
-# de le pointer vers une IP publique). build-and-push reste sur un runner GitHub-hosted, puisqu'il
-# n'a besoin que d'accéder à GHCR, pas au cluster.
+# de le pointer vers une IP publique). Les autres jobs restent sur des runners GitHub-hosted.
 
 on:
   pull_request:
@@ -39,8 +45,48 @@ permissions:
   packages: write
 
 jobs:
-  backend:
-    name: Backend (.NET) — build, tests, Sonar
+  test-backend:
+    name: Tests backend (.NET) — unitaires + intégration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/Collector.sln
+
+      - name: Build
+        run: dotnet build src/Collector.sln --no-restore -c Release
+
+      - name: Test (unitaires + intégration, Testcontainers)
+        run: dotnet test src/Collector.sln --no-build -c Release --logger "trx"
+
+  test-frontend:
+    name: Tests frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/frontend/web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --ci
+      - run: npm run build
+
+  sonar:
+    name: Analyse SonarQube
+    needs: test-backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,29 +119,35 @@ jobs:
           /d:sonar.cs.vstest.reportsPaths="**/*.trx"
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
 
+      # Sonar doit encadrer la compilation + les tests elle-même (begin/end instrumentent le
+      # processus) — ce cycle est donc redondant avec le job test-backend, pas un doublon évitable.
       - name: Build
         run: dotnet build src/Collector.sln --no-restore -c Release
 
-      - name: Test (unitaires + intégration) avec couverture
+      - name: Test avec couverture
         run: >
           dotnet test src/Collector.sln --no-build -c Release
           --logger "trx"
           /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
-      - name: Scan de vulnérabilités des dépendances NuGet
-        run: dotnet list src/Collector.sln package --vulnerable --include-transitive
-
       - name: Sonar end
         run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
 
-  frontend:
-    name: Frontend (Next.js) — lint, tests, build
+  vulnerabilities:
+    name: Scan de vulnérabilités (dépendances)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/frontend/web
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore (.NET)
+        run: dotnet restore src/Collector.sln
+
+      - name: NuGet — dépendances vulnérables
+        run: dotnet list src/Collector.sln package --vulnerable --include-transitive
 
       - uses: actions/setup-node@v4
         with:
@@ -103,19 +155,21 @@ jobs:
           cache: "npm"
           cache-dependency-path: src/frontend/web/package-lock.json
 
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test -- --ci
+      - name: npm ci (frontend)
+        working-directory: src/frontend/web
+        run: npm ci
+
       # --omit=dev : les vulnérabilités de l'outillage de build (Jest, chaîne ESLint/Next via
       # braces/micromatch) ne finissent jamais dans l'image Docker (output: "standalone" n'embarque
       # pas les devDependencies) — le scan de sécurité porte sur ce qui est réellement livré.
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm run build
+      - name: npm audit — dépendances de production
+        working-directory: src/frontend/web
+        run: npm audit --omit=dev --audit-level=high
 
   build-and-push:
     name: Build & push images (${{ matrix.service }})
     if: github.event_name == 'push'
-    needs: [backend, frontend]
+    needs: [test-backend, test-frontend, sonar, vulnerabilities]
     runs-on: ubuntu-latest
     strategy:
       matrix:

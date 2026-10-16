@@ -283,22 +283,31 @@ Le pipeline CI/CD doit intégrer **au minimum 2 types de tests** parmi unitaire/
 
 ## 7. Pipeline CI/CD (GitHub Actions — implémenté dans `.github/workflows/`)
 
-Un seul workflow, `pipeline.yml` (qualité + build + déploiement) — pas deux fichiers séparés comme au
-début : `build-and-push` et les 3 jobs de déploiement dépendent explicitement (`needs:`) de `backend`
-**et** `frontend`, donc un test qui échoue bloque tout le reste du pipeline (pas juste un warning
-affiché à côté). `backend`/`frontend` tournent sur PR et push ; `build-and-push` et les déploiements
-ne tournent que sur push (jamais sur une PR).
+Un seul workflow, `pipeline.yml`, découpé en **jobs séparés par type d'étape** (plus lisible qu'un
+seul gros job "qualité", et surtout plus proche du schéma attendu par les consignes) :
+`test-backend`, `test-frontend` et `vulnerabilities` tournent en parallèle (aucune dépendance entre
+eux) ; `sonar` dépend de `test-backend` (inutile de lancer l'analyse si les tests de base échouent
+déjà) et réexécute son propre cycle build/test — redondant en apparence, mais requis : le scanner
+Sonar doit encadrer la compilation elle-même (`sonarscanner begin`/`end`), impossible de le brancher
+après coup sur un build déjà fait ailleurs. `build-and-push` exige (`needs:`) que les **quatre** jobs
+de qualité aient réussi : un test ou un scan en échec bloque tout déploiement, pas juste un warning
+affiché à côté. `test-backend`/`test-frontend`/`vulnerabilities`/`sonar` tournent sur PR et push ;
+`build-and-push` et les 3 déploiements ne tournent que sur push (jamais sur une PR).
 
 ```mermaid
 flowchart TD
-    A["push / PR (develop, uat, master)"] --> B["backend : build + tests<br/>(.NET : dotnet build/test, Testcontainers)"]
-    B --> C["backend : SonarQube scan<br/>(serveur auto-hébergé)"]
-    C --> D["backend : scan vulnérabilités NuGet<br/>frontend (en parallèle) : lint, npm audit, build"]
-    D --> E["build-and-push (push uniquement, needs backend+frontend)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
-    E --> F{"Déclencheur ?"}
-    F -->|push develop| G["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
-    F -->|push uat| H["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
-    F -->|push master| I["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
+    A["push / PR (develop, uat, master)"] --> B["test-backend<br/>dotnet build + test (unitaires + intégration, Testcontainers)"]
+    A --> C["test-frontend<br/>npm lint + test (Jest) + build"]
+    A --> D["vulnerabilities<br/>dotnet list --vulnerable (NuGet) + npm audit (frontend, prod only)"]
+    B --> E["sonar (needs test-backend)<br/>SonarQube scan, serveur auto-hébergé"]
+    B --> F["build-and-push<br/>(push uniquement, needs test-backend+test-frontend+sonar+vulnerabilities)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
+    C --> F
+    D --> F
+    E --> F
+    F --> G{"Déclencheur ?"}
+    G -->|push develop| H["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
+    G -->|push uat| I["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
+    G -->|push master| J["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
 ```
 
 **Séparation stricte des deux magasins de secrets** (décision 2026-10-15, voir section 4) :
