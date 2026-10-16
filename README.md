@@ -285,22 +285,28 @@ Le pipeline CI/CD doit intégrer **au minimum 2 types de tests** parmi unitaire/
 
 Un seul workflow, `pipeline.yml`, découpé en **jobs séparés par type d'étape** (plus lisible qu'un
 seul gros job "qualité", et surtout plus proche du schéma attendu par les consignes) :
-`test-backend`, `test-frontend` et `vulnerabilities` tournent en parallèle (aucune dépendance entre
-eux) ; `sonar` dépend de `test-backend` (inutile de lancer l'analyse si les tests de base échouent
-déjà) et réexécute son propre cycle build/test — redondant en apparence, mais requis : le scanner
-Sonar doit encadrer la compilation elle-même (`sonarscanner begin`/`end`), impossible de le brancher
-après coup sur un build déjà fait ailleurs. `build-and-push` exige (`needs:`) que les **quatre** jobs
-de qualité aient réussi : un test ou un scan en échec bloque tout déploiement, pas juste un warning
-affiché à côté. `test-backend`/`test-frontend`/`vulnerabilities`/`sonar` tournent sur PR et push ;
-`build-and-push` et les 3 déploiements ne tournent que sur push (jamais sur une PR).
+`test-backend-unit`, `test-backend-integration`, `test-frontend` et `vulnerabilities` tournent en
+parallèle (aucune dépendance entre eux) — unitaires et intégration sont volontairement deux jobs
+distincts (filtrés via `--filter "Category=Unit"` / `"Category=Integration"`, classes marquées
+`[Trait("Category", ...)]`) pour voir immédiatement, dans l'UI GitHub Actions, lequel des deux types
+échoue. `sonar` dépend des deux jobs de tests backend (inutile de lancer l'analyse si les tests de
+base échouent déjà) et réexécute son propre cycle build/test — redondant en apparence, mais requis :
+le scanner Sonar doit encadrer la compilation elle-même (`sonarscanner begin`/`end`), impossible de
+le brancher après coup sur un build déjà fait ailleurs. `build-and-push` exige (`needs:`) que les
+**cinq** jobs de qualité aient réussi : un test ou un scan en échec bloque tout déploiement, pas
+juste un warning affiché à côté. Tous les jobs de qualité tournent sur PR et push ; `build-and-push`
+et les 3 déploiements ne tournent que sur push (jamais sur une PR).
 
 ```mermaid
 flowchart TD
-    A["push / PR (develop, uat, master)"] --> B["test-backend<br/>dotnet build + test (unitaires + intégration, Testcontainers)"]
+    A["push / PR (develop, uat, master)"] --> B["test-backend-unit<br/>logique pure (PersonalDataFilter, AutomatedModerationRules)"]
+    A --> B2["test-backend-integration<br/>WebApplicationFactory + SQL Server (Testcontainers)"]
     A --> C["test-frontend<br/>npm lint + test (Jest) + build"]
     A --> D["vulnerabilities<br/>dotnet list --vulnerable (NuGet) + npm audit (frontend, prod only)"]
-    B --> E["sonar (needs test-backend)<br/>SonarQube scan, serveur auto-hébergé"]
-    B --> F["build-and-push<br/>(push uniquement, needs test-backend+test-frontend+sonar+vulnerabilities)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
+    B --> E["sonar (needs test-backend-unit+integration)<br/>SonarQube scan, serveur auto-hébergé"]
+    B2 --> E
+    B --> F["build-and-push<br/>(push uniquement, needs les 5 jobs qualité)<br/>build image Docker par service (6) → push GHCR + scan Trivy"]
+    B2 --> F
     C --> F
     D --> F
     E --> F

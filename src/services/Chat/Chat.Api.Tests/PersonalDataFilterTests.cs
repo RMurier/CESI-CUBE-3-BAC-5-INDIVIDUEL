@@ -3,6 +3,7 @@ using Xunit;
 
 namespace Chat.Api.Tests;
 
+[Trait("Category", "Unit")]
 public sealed class PersonalDataFilterTests
 {
     [Theory]

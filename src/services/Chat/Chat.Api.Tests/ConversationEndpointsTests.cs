@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Chat.Api.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class ConversationEndpointsTests(ChatApiFactory factory) : IClassFixture<ChatApiFactory>
 {
     [Fact]

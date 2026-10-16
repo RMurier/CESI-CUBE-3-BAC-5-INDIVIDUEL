@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Catalog.Api.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IClassFixture<CatalogApiFactory>
 {
     private readonly HttpClient _client = CreateAuthenticatedClient(factory, out _);
@@ -21,11 +22,22 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
         return client;
     }
 
+    // Échoue avec le corps de la réponse en message d'assertion plutôt qu'une JsonException opaque
+    // si le serveur renvoie autre chose que le code attendu (ex: message d'exception sur un 500).
+    private static async Task AssertStatusAsync(HttpResponseMessage response, HttpStatusCode expected)
+    {
+        if (response.StatusCode != expected)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Fail($"Expected {expected} but got {response.StatusCode}. Body: {body}");
+        }
+    }
+
     [Fact]
     public async Task Creating_an_article_publishes_ArticleSubmittedEvent_and_keeps_it_out_of_the_public_catalog()
     {
         var shopResponse = await _client.PostAsJsonAsync("/shops", new { Name = "La boutique d'Alice" });
-        Assert.Equal(HttpStatusCode.Created, shopResponse.StatusCode);
+        await AssertStatusAsync(shopResponse, HttpStatusCode.Created);
         var shop = await shopResponse.Content.ReadFromJsonAsync<Shop>();
 
         var articleResponse = await _client.PostAsJsonAsync($"/shops/{shop!.Id}/articles", new
@@ -35,7 +47,7 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Price = 89.90m,
             ShippingCost = 5.90m,
         });
-        Assert.Equal(HttpStatusCode.Created, articleResponse.StatusCode);
+        await AssertStatusAsync(articleResponse, HttpStatusCode.Created);
         var article = await articleResponse.Content.ReadFromJsonAsync<Article>();
 
         Assert.Equal(ArticleStatus.PendingReview, article!.Status);
@@ -50,6 +62,7 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
     public async Task Updating_the_price_of_an_article_publishes_PriceChangedEvent()
     {
         var shopResponse = await _client.PostAsJsonAsync("/shops", new { Name = "Autre boutique" });
+        await AssertStatusAsync(shopResponse, HttpStatusCode.Created);
         var shop = await shopResponse.Content.ReadFromJsonAsync<Shop>();
         var articleResponse = await _client.PostAsJsonAsync($"/shops/{shop!.Id}/articles", new
         {
@@ -58,11 +71,12 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Price = 20m,
             ShippingCost = 3m,
         });
+        await AssertStatusAsync(articleResponse, HttpStatusCode.Created);
         var article = await articleResponse.Content.ReadFromJsonAsync<Article>();
 
         var priceResponse = await _client.PutAsJsonAsync($"/articles/{article!.Id}/price", new { NewPrice = 35m });
 
-        Assert.Equal(HttpStatusCode.OK, priceResponse.StatusCode);
+        await AssertStatusAsync(priceResponse, HttpStatusCode.OK);
         Assert.Contains(
             factory.EventBus.PublishedOf<PriceChangedEvent>(),
             e => e.ArticleId == article.Id && e.PreviousPrice == 20m && e.NewPrice == 35m);

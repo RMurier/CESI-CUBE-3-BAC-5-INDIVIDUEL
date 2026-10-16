@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- "dotnet test" sur toute la solution lance par défaut les N projets de tests en parallèle
+       (un process VSTest par assembly). Pour les tests d'intégration, chaque projet démarre sa
+       propre instance SQL Server via Testcontainers (≈2 Go RAM chacune) — 5 en parallèle peut
+       saturer un runner CI modeste et causer des échecs par contention plutôt qu'un vrai bug
+       applicatif. MaxCpuCount=1 force une exécution séquentielle des assemblies de test. -->
+  <RunConfiguration>
+    <MaxCpuCount>1</MaxCpuCount>
+  </RunConfiguration>
+</RunSettings>

@@ -1,16 +1,19 @@
 name: CI/CD
 
 # Pipeline unique, en jobs séparés par type d'étape :
-#   test-backend ─┐
-#   test-frontend ─┼──→ sonar (needs test-backend) ─┐
-#   vulnerabilities ┘                                 ├──→ build-and-push ──→ deploy-dev/uat/prod
-#                                                      ┘
-# test-backend/test-frontend/vulnerabilities tournent en parallèle (aucune dépendance entre eux).
-# sonar réutilise son propre cycle restore/build/test (requis par le scanner, qui doit encadrer la
-# compilation elle-même) mais needs: test-backend — pas la peine de lancer l'analyse Sonar si les
-# tests de base échouent déjà. build-and-push exige que LES QUATRE jobs de qualité aient réussi
-# (needs), donc un test/scan en échec bloque tout déploiement, pas seulement un warning.
-# build-and-push et les 3 jobs de déploiement ne tournent QUE sur push (jamais sur une PR).
+#   test-backend-unit ────┐
+#   test-backend-integration ─┼──→ sonar (needs les deux ci-dessus) ─┐
+#   test-frontend ─────────┤                                          ├──→ build-and-push ──→ deploy-*
+#   vulnerabilities ───────┘                                          ┘
+# test-backend-unit/test-backend-integration/test-frontend/vulnerabilities tournent en parallèle
+# (aucune dépendance entre eux) — unitaires (logique pure, [Trait("Category","Unit")]) et intégration
+# (WebApplicationFactory + vraie SQL Server via Testcontainers, [Trait("Category","Integration")])
+# sont deux jobs distincts, filtrés via --filter "Category=...", pour isoler clairement quel type de
+# test échoue. sonar réutilise son propre cycle restore/build/test (requis par le scanner, qui doit
+# encadrer la compilation elle-même) mais needs les deux jobs de tests backend — pas la peine de
+# lancer l'analyse Sonar si les tests de base échouent déjà. build-and-push exige que LES CINQ jobs
+# de qualité aient réussi (needs), donc un test/scan en échec bloque tout déploiement, pas seulement
+# un warning. build-and-push et les 3 jobs de déploiement ne tournent QUE sur push (jamais sur une PR).
 #
 # develop -> déploiement auto sur dev
 # uat     -> déploiement auto sur uat
@@ -45,8 +48,8 @@ permissions:
   packages: write
 
 jobs:
-  test-backend:
-    name: Tests backend (.NET) — unitaires + intégration
+  test-backend-unit:
+    name: Tests backend (.NET) — unitaires
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,8 +64,36 @@ jobs:
       - name: Build
         run: dotnet build src/Collector.sln --no-restore -c Release
 
-      - name: Test (unitaires + intégration, Testcontainers)
-        run: dotnet test src/Collector.sln --no-build -c Release --logger "trx"
+      # Logique pure, sans dépendance externe (pas de WebApplicationFactory/Testcontainers) —
+      # classes marquées [Trait("Category", "Unit")] (PersonalDataFilterTests,
+      # AutomatedModerationRulesTests).
+      - name: Test unitaires
+        run: dotnet test src/Collector.sln --no-build -c Release --logger "trx" --filter "Category=Unit"
+
+  test-backend-integration:
+    name: Tests backend (.NET) — intégration (Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/Collector.sln
+
+      - name: Build
+        run: dotnet build src/Collector.sln --no-restore -c Release
+
+      # Bout en bout via WebApplicationFactory + vraie instance SQL Server éphémère (Testcontainers)
+      # — classes marquées [Trait("Category", "Integration")] (AuthEndpointsTests,
+      # ShopAndArticleEndpointsTests, ConversationEndpointsTests, SubscriptionAndNotificationEndpointsTests,
+      # DecisionsEndpointTests).
+      - name: Test intégration
+        # --settings .runsettings : exécute les projets de tests séquentiellement (pas 5 instances
+        # SQL Server/Testcontainers simultanées sur un runner CI modeste).
+        run: dotnet test src/Collector.sln --no-build -c Release --logger "trx" --filter "Category=Integration" --settings .runsettings
 
   test-frontend:
     name: Tests frontend (Next.js)
@@ -86,7 +117,7 @@ jobs:
 
   sonar:
     name: Analyse SonarQube
-    needs: test-backend
+    needs: [test-backend-unit, test-backend-integration]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,9 +156,10 @@ jobs:
         run: dotnet build src/Collector.sln --no-restore -c Release
 
       - name: Test avec couverture
+        # --settings .runsettings : exécution séquentielle, voir test-backend-integration.
         run: >
           dotnet test src/Collector.sln --no-build -c Release
-          --logger "trx"
+          --logger "trx" --settings .runsettings
           /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
       - name: Sonar end
@@ -169,7 +201,7 @@ jobs:
   build-and-push:
     name: Build & push images (${{ matrix.service }})
     if: github.event_name == 'push'
-    needs: [test-backend, test-frontend, sonar, vulnerabilities]
+    needs: [test-backend-unit, test-backend-integration, test-frontend, sonar, vulnerabilities]
     runs-on: ubuntu-latest
     strategy:
       matrix:

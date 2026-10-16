@@ -7,6 +7,7 @@ using Xunit;
 
 namespace Moderation.Api.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class DecisionsEndpointTests(ModerationApiFactory factory) : IClassFixture<ModerationApiFactory>
 {
     [Fact]

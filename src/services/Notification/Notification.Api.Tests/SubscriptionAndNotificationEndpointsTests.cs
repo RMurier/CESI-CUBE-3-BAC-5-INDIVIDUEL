@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Notification.Api.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class SubscriptionAndNotificationEndpointsTests(NotificationApiFactory factory) : IClassFixture<NotificationApiFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();

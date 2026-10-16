@@ -4,6 +4,7 @@ using Xunit;
 
 namespace Identity.Api.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class AuthEndpointsTests(IdentityApiFactory factory) : IClassFixture<IdentityApiFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();

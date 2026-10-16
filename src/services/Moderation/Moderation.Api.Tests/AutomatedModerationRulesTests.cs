@@ -4,6 +4,7 @@ using Xunit;
 
 namespace Moderation.Api.Tests;
 
+[Trait("Category", "Unit")]
 public sealed class AutomatedModerationRulesTests
 {
     private static ArticleSubmittedEvent ValidArticle(decimal price = 49.90m, string description = "Figurine Hasbro vintage en excellent état.") =>
