@@ -185,6 +185,47 @@ jobs:
       - name: Sonar end
         run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
 
+      # "sonarscanner end" envoie juste les résultats au serveur — il ne fait jamais échouer le job
+      # sur le statut de la Quality Gate. report-task.txt (écrit par "begin") donne l'URL de la tâche
+      # d'analyse ; on l'attend, puis on interroge le vrai statut de la Quality Gate et on échoue
+      # explicitement si ce n'est pas "OK".
+      - name: Vérifier la Quality Gate Sonar
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT_FILE=$(find . -name "report-task.txt" | head -1)
+          if [ -z "$REPORT_FILE" ]; then
+            echo "report-task.txt introuvable — l'analyse Sonar n'a probablement pas tourné."
+            exit 1
+          fi
+          CE_TASK_URL=$(grep '^ceTaskUrl=' "$REPORT_FILE" | cut -d= -f2-)
+
+          STATUS="PENDING"
+          for _ in $(seq 1 30); do
+            STATUS=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" "$CE_TASK_URL" | jq -r '.task.status')
+            echo "Tâche d'analyse Sonar : $STATUS"
+            case "$STATUS" in
+              SUCCESS|FAILED|CANCELED) break ;;
+            esac
+            sleep 5
+          done
+
+          if [ "$STATUS" != "SUCCESS" ]; then
+            echo "L'analyse Sonar elle-même a échoué (status=$STATUS)."
+            exit 1
+          fi
+
+          ANALYSIS_ID=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" "$CE_TASK_URL" | jq -r '.task.analysisId')
+          QG_STATUS=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" \
+            | jq -r '.projectStatus.status')
+          echo "Quality Gate : $QG_STATUS"
+
+          if [ "$QG_STATUS" != "OK" ]; then
+            echo "Quality Gate Sonar non respectée (status=$QG_STATUS) — voir le dashboard pour le détail."
+            exit 1
+          fi
+
   vulnerabilities:
     name: Scan de vulnérabilités (dépendances)
     runs-on: ubuntu-latest
