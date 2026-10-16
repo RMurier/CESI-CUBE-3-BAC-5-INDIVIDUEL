@@ -195,10 +195,16 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore (.NET)
-        run: dotnet restore src/Collector.sln
+      # L'audit NuGet (restore) émet NU1901 (Low) / NU1902 (Moderate) / NU1903 (High) / NU1904
+      # (Critical) selon la gravité réelle de chaque CVE. Ne bloquer que High/Critical — Low/Moderate
+      # restent des warnings visibles sans bloquer le pipeline (même seuil que npm audit
+      # --audit-level=high côté frontend, voir plus bas).
+      - name: Restore (.NET) — bloque sur vulnérabilité High/Critical
+        # %3B : la CLI dotnet traite ";" comme séparateur entre propriétés -p:, pas comme partie
+        # de la valeur — il faut l'encoder pour une liste de codes dans une seule propriété.
+        run: dotnet restore src/Collector.sln "-p:WarningsAsErrors=NU1903%3BNU1904"
 
-      - name: NuGet — dépendances vulnérables
+      - name: NuGet — rapport complet (y compris Low/Moderate, non bloquant)
         run: dotnet list src/Collector.sln package --vulnerable --include-transitive
 
       - uses: actions/setup-node@v4
