@@ -232,10 +232,12 @@ jobs:
             curl -sS -u "${{ secrets.SONAR_TOKEN }}:" -w '\n%{http_code}' "${{ secrets.SONAR_HOST_URL }}$1"
           }
           echo "::group::Bugs (reliability)"
-          OUT=$(sonar_get "/api/issues/search?componentKeys=$PROJECT_KEY&types=BUG&ps=100" || true)
+          OUT=$(sonar_get "/api/issues/search?componentKeys=$PROJECT_KEY&impactSoftwareQualities=RELIABILITY&ps=100" || true)
           echo "HTTP $(echo "$OUT" | tail -1)"
           echo "$OUT" | sed '$d' | jq -r '"total=\(.total)", (.issues[]? | "  [\(.severity)] \(.component | sub("^[^:]*:";""))#L\(.line // "?") \(.rule) — \(.message)")' || true
           echo "::endgroup::"
+          OUT=$(sonar_get "/api/issues/search?componentKeys=$PROJECT_KEY&ps=1" || true)
+          echo "Toutes issues : HTTP $(echo "$OUT" | tail -1) total=$(echo "$OUT" | sed '$d' | jq -r '.total' || true)"
           echo "::group::Fichiers les moins couverts"
           OUT=$(sonar_get "/api/measures/component_tree?component=$PROJECT_KEY&metricKeys=coverage,uncovered_lines&qualifiers=FIL&metricSort=uncovered_lines&metricSortFilter=withMeasuresOnly&s=metric&asc=false&ps=40" || true)
           echo "HTTP $(echo "$OUT" | tail -1)"
