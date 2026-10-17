@@ -346,7 +346,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: Scan de vulnérabilités de l'image (Trivy)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: ${{ steps.tag.outputs.registry }}/collector-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
           severity: CRITICAL,HIGH
