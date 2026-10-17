@@ -23,7 +23,7 @@ public sealed class ArticlePublishedConsumer(
         var emailSender = scopedServices.GetRequiredService<IEmailSender>();
 
         var matchingSubscriptions = await db.Subscriptions
-            .Where(s => EF.Functions.Like(publishedEvent.Title, $"%{s.Keyword}%"))
+            .Where(s => publishedEvent.Title.Contains(s.Keyword))
             .ToListAsync(cancellationToken);
 
         foreach (var subscription in matchingSubscriptions)
