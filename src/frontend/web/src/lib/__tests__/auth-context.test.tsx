@@ -1,16 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../auth-context";
 
 function makeToken(claims: object) {
   return `h.${btoa(JSON.stringify(claims))}.s`;
 }
 const token = makeToken({ sub: "u1", email: "a@b.c", display_name: "Alice", exp: 1 });
-
-let ctx: ReturnType<typeof useAuth>;
-function Probe() {
-  ctx = useAuth();
-  return <p>{ctx.loading ? "loading" : (ctx.auth?.displayName ?? "anon")}</p>;
-}
 
 const fetchMock = jest.fn();
 beforeEach(() => {
@@ -20,18 +14,15 @@ beforeEach(() => {
 });
 
 async function mount() {
-  render(
-    <AuthProvider>
-      <Probe />
-    </AuthProvider>,
-  );
-  await waitFor(() => expect(ctx.loading).toBe(false));
+  const hook = renderHook(() => useAuth(), { wrapper: AuthProvider });
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  return hook.result;
 }
 
 describe("AuthProvider", () => {
   it("useAuth hors provider lève une erreur", () => {
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    expect(() => render(<Probe />)).toThrow("AuthProvider");
+    expect(() => renderHook(() => useAuth())).toThrow("AuthProvider");
     spy.mockRestore();
   });
 
@@ -40,59 +31,59 @@ describe("AuthProvider", () => {
       "collector.auth",
       JSON.stringify({ token, userId: "u1", email: "a@b.c", displayName: "Alice", roles: [] }),
     );
-    await mount();
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    const r = await mount();
+    expect(r.current.auth?.displayName).toBe("Alice");
   });
 
   it("ignore un stockage corrompu", async () => {
     localStorage.setItem("collector.auth", "{pas du json");
-    await mount();
-    expect(screen.getByText("anon")).toBeInTheDocument();
+    const r = await mount();
+    expect(r.current.auth).toBeNull();
   });
 
   it("login réussi persiste la session, logout l'efface", async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ accessToken: token, roles: ["Buyer"] }) });
-    await mount();
-    await act(() => ctx.login("a@b.c", "pw"));
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    const r = await mount();
+    await act(() => r.current.login("a@b.c", "pw"));
+    expect(r.current.auth?.displayName).toBe("Alice");
     expect(localStorage.getItem("collector.auth")).toContain("u1");
-    act(() => ctx.logout());
-    expect(screen.getByText("anon")).toBeInTheDocument();
+    act(() => r.current.logout());
+    expect(r.current.auth).toBeNull();
     expect(localStorage.getItem("collector.auth")).toBeNull();
   });
 
   it("login: 401, autre erreur et jeton invalide", async () => {
-    await mount();
+    const r = await mount();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
-    await expect(ctx.login("a", "b")).rejects.toThrow("incorrect");
+    await expect(r.current.login("a", "b")).rejects.toThrow("incorrect");
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
-    await expect(ctx.login("a", "b")).rejects.toThrow("Connexion impossible.");
+    await expect(r.current.login("a", "b")).rejects.toThrow("Connexion impossible.");
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: "nimporte" }) });
-    await expect(ctx.login("a", "b")).rejects.toThrow("invalide");
+    await expect(r.current.login("a", "b")).rejects.toThrow("invalide");
   });
 
   it("register: 409, autre erreur, et succès enchaîné sur login", async () => {
-    await mount();
+    const r = await mount();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 409 });
-    await expect(ctx.register("a", "b", "c")).rejects.toThrow("existe déjà");
+    await expect(r.current.register("a", "b", "c")).rejects.toThrow("existe déjà");
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
-    await expect(ctx.register("a", "b", "c")).rejects.toThrow("Inscription impossible.");
+    await expect(r.current.register("a", "b", "c")).rejects.toThrow("Inscription impossible.");
     fetchMock
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: token }) });
-    await act(() => ctx.register("a", "b", "c"));
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    await act(() => r.current.register("a", "b", "c"));
+    expect(r.current.auth?.displayName).toBe("Alice");
   });
 
   it("becomeSeller: refuse sans session, met à jour les rôles, gère l'échec", async () => {
-    await mount();
-    await expect(ctx.becomeSeller()).rejects.toThrow("Connexion requise");
+    const r = await mount();
+    await expect(r.current.becomeSeller()).rejects.toThrow("Connexion requise");
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: token, roles: [] }) });
-    await act(() => ctx.login("a", "b"));
+    await act(() => r.current.login("a", "b"));
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ roles: ["Buyer", "Seller"] }) });
-    await act(() => ctx.becomeSeller());
-    expect(ctx.auth?.roles).toContain("Seller");
+    await act(() => r.current.becomeSeller());
+    expect(r.current.auth?.roles).toContain("Seller");
     fetchMock.mockResolvedValueOnce({ ok: false });
-    await expect(ctx.becomeSeller()).rejects.toThrow("devenir vendeur");
+    await expect(r.current.becomeSeller()).rejects.toThrow("devenir vendeur");
   });
 });
