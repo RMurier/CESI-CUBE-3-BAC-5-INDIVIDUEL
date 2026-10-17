@@ -73,7 +73,7 @@ export default function NotificationsPage() {
         <h2 className="text-lg font-semibold">S&apos;abonner à un centre d&apos;intérêt</h2>
         <form onSubmit={handleSubscribe} className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-sm">
-            Mot-clé
+            Mot-clé{" "}
             <input
               required
               placeholder="ex: figurine"

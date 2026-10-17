@@ -62,7 +62,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.EnsureCreatedAsync();
 }
 
 app.UseAuthentication();
@@ -80,6 +80,6 @@ app.MapGet("/conversations/{conversationId}/messages", async (string conversatio
         .ToListAsync())
     .RequireAuthorization();
 
-app.Run();
+await app.RunAsync();
 
 public partial class Program;

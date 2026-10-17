@@ -1,3 +1,4 @@
+using Identity.Api.Contracts;
 using System.Security.Claims;
 using System.Text;
 using Identity.Api.Domain;
@@ -55,7 +56,7 @@ using (var scope = app.Services.CreateScope())
 {
     // Prototype : EnsureCreated plutôt que des migrations formelles (cf. README section 11).
     var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.EnsureCreatedAsync();
 }
 
 app.UseCors("Frontend");
@@ -108,10 +109,8 @@ app.MapPost("/auth/become-seller", async (ClaimsPrincipal principal, IdentityDbC
     return Results.Ok(new { user.Id, roles = user.Roles() });
 }).RequireAuthorization();
 
-app.Run();
+await app.RunAsync();
 
-internal sealed record RegisterRequest(string Email, string Password, string DisplayName);
-internal sealed record LoginRequest(string Email, string Password);
 
 /// <summary>Exposé pour les tests d'intégration (WebApplicationFactory).</summary>
 public partial class Program;

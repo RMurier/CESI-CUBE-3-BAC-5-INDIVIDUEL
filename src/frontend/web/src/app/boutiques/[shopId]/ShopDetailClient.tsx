@@ -80,7 +80,7 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
           </p>
           <form onSubmit={handleCreateArticle} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-              Titre
+              Titre{" "}
               <input
                 required
                 value={title}
@@ -89,7 +89,7 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-              Description
+              Description{" "}
               <textarea
                 required
                 minLength={10}
@@ -99,7 +99,7 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              Prix (€)
+              Prix (€){" "}
               <input
                 type="number"
                 min="0.01"
@@ -111,7 +111,7 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              Frais de port (€)
+              Frais de port (€){" "}
               <input
                 type="number"
                 min="0"

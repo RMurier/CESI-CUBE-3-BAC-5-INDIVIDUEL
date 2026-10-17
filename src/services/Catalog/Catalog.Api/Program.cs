@@ -1,3 +1,4 @@
+using Catalog.Api.Contracts;
 using System.Security.Claims;
 using Catalog.Api.Domain;
 using Catalog.Api.Infrastructure;
@@ -59,7 +60,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.EnsureCreatedAsync();
 }
 
 app.UseCors("Frontend");
@@ -137,10 +138,7 @@ app.MapPut("/articles/{id:guid}/price", async (
     return Results.Ok(article);
 }).RequireAuthorization();
 
-app.Run();
+await app.RunAsync();
 
-internal sealed record CreateShopRequest(string Name, string? Description);
-internal sealed record CreateArticleRequest(string Title, string Description, decimal Price, decimal ShippingCost);
-internal sealed record UpdatePriceRequest(decimal NewPrice);
 
 public partial class Program;

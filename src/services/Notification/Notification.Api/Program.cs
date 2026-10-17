@@ -1,3 +1,4 @@
+using Notification.Api.Contracts;
 using Collector.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Notification.Api.Domain;
@@ -28,7 +29,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.EnsureCreatedAsync();
 }
 
 app.UseCors("Frontend");
@@ -60,8 +61,7 @@ app.MapPost("/notifications/{id:guid}/read", async (Guid id, NotificationDbConte
     return Results.NoContent();
 });
 
-app.Run();
+await app.RunAsync();
 
-internal sealed record CreateSubscriptionRequest(Guid UserId, string Keyword);
 
 public partial class Program;

@@ -37,7 +37,7 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
-          Nom affiché
+          Nom affiché{" "}
           <input
             required
             value={displayName}
@@ -47,7 +47,7 @@ export default function RegisterPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Email
+          Email{" "}
           <input
             type="email"
             required
@@ -58,7 +58,7 @@ export default function RegisterPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Mot de passe
+          Mot de passe{" "}
           <input
             type="password"
             required

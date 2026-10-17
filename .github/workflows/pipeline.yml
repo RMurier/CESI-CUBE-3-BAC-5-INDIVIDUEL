@@ -164,6 +164,9 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
           /d:sonar.javascript.lcov.reportPaths="src/frontend/web/coverage/lcov.info"
           /d:sonar.exclusions="**/node_modules/**,**/.next/**,**/coverage/**"
+          /d:sonar.issue.ignore.multicriteria="e1"
+          /d:sonar.issue.ignore.multicriteria.e1.ruleKey="css:S4662"
+          /d:sonar.issue.ignore.multicriteria.e1.resourceKey="**/globals.css"
           /d:sonar.coverage.exclusions="**/Migrations/**,**/Properties/**,**/*.d.ts,**/__tests__/**,**/*.test.ts,**/*.test.tsx,src/frontend/web/jest.*,src/frontend/web/next.config.ts,src/frontend/web/eslint.config.mjs,src/frontend/web/src/app/layout.tsx"
 
       # Sonar doit encadrer la compilation + les tests elle-même (begin/end instrumentent le

@@ -20,7 +20,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ModerationDbContext>();
-    db.Database.EnsureCreated();
+    await db.Database.EnsureCreatedAsync();
 }
 
 app.MapHealthChecks("/health");
@@ -30,6 +30,6 @@ app.MapHealthChecks("/health/ready");
 app.MapGet("/decisions/{articleId:guid}", async (Guid articleId, ModerationDbContext db) =>
     await db.Decisions.Where(d => d.ArticleId == articleId).OrderByDescending(d => d.EvaluatedAt).ToListAsync());
 
-app.Run();
+await app.RunAsync();
 
 public partial class Program;

@@ -92,7 +92,7 @@ export default function AccountPage() {
             <h2 className="text-lg font-semibold">Créer une boutique</h2>
             <form onSubmit={handleCreateShop} className="flex flex-col gap-3">
               <label className="flex flex-col gap-1 text-sm">
-                Nom
+                Nom{" "}
                 <input
                   required
                   value={shopName}
@@ -101,7 +101,7 @@ export default function AccountPage() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Description (optionnelle)
+                Description (optionnelle){" "}
                 <textarea
                   value={shopDescription}
                   onChange={(e) => setShopDescription(e.target.value)}
