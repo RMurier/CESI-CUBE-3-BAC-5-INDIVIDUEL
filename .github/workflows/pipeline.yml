@@ -238,8 +238,12 @@ jobs:
           echo "::endgroup::"
           OUT=$(sonar_get "/api/issues/search?componentKeys=$PROJECT_KEY&ps=1" || true)
           echo "Toutes issues : HTTP $(echo "$OUT" | tail -1) total=$(echo "$OUT" | sed '$d' | jq -r '.total' || true)"
+          OUT=$(sonar_get "/api/measures/component?component=$PROJECT_KEY&metricKeys=bugs,reliability_rating,new_bugs,coverage,ncloc,lines_to_cover,uncovered_lines" || true)
+          echo "Mesures projet : $(echo "$OUT" | sed '$d' | jq -c '.component.measures' || true)"
+          OUT=$(sonar_get "/api/projects/search?projects=$PROJECT_KEY" || true)
+          echo "Projet : $(echo "$OUT" | sed '$d' | jq -c '.components' || true)"
           echo "::group::Fichiers les moins couverts"
-          OUT=$(sonar_get "/api/measures/component_tree?component=$PROJECT_KEY&metricKeys=coverage,uncovered_lines&qualifiers=FIL&metricSort=uncovered_lines&metricSortFilter=withMeasuresOnly&s=metric&asc=false&ps=40" || true)
+          OUT=$(sonar_get "/api/measures/component_tree?component=$PROJECT_KEY&metricKeys=coverage,uncovered_lines&qualifiers=FIL&strategy=all&s=metric&metricSort=uncovered_lines&asc=false&ps=40" || true)
           echo "HTTP $(echo "$OUT" | tail -1)"
           echo "$OUT" | sed '$d' | jq -r '.components[]? | "  \(.path)  " + ([.measures[] | "\(.metric)=\(.value)"] | join(" "))' || true
           echo "::endgroup::"
