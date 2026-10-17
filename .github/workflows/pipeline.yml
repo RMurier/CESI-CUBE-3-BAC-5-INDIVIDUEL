@@ -164,6 +164,7 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
           /d:sonar.javascript.lcov.reportPaths="src/frontend/web/coverage/lcov.info"
           /d:sonar.exclusions="**/node_modules/**,**/.next/**,**/coverage/**"
+          /d:sonar.coverage.exclusions="**/Migrations/**,**/Properties/**,**/*.d.ts,**/__tests__/**,**/*.test.ts,**/*.test.tsx,src/frontend/web/jest.*,src/frontend/web/next.config.ts,src/frontend/web/eslint.config.mjs,src/frontend/web/src/app/layout.tsx"
 
       # Sonar doit encadrer la compilation + les tests elle-même (begin/end instrumentent le
       # processus) — ce cycle est donc redondant avec test-backend-unit/integration et
@@ -224,6 +225,19 @@ jobs:
           # Affiche les conditions en échec pour diagnostiquer sans ouvrir le dashboard.
           echo "$QG_JSON" | jq -r '.projectStatus.conditions[]? | select(.status != "OK")
             | "  - \(.metricKey): \(.actualValue) (seuil \(.comparator) \(.errorThreshold)) → \(.status)"'
+
+          # Diagnostic : bugs (fiabilité) et fichiers les moins couverts.
+          PROJECT_KEY="collector-shop"
+          echo "::group::Bugs (reliability)"
+          curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/issues/search?componentKeys=$PROJECT_KEY&types=BUG&resolved=false&ps=100" \
+            | jq -r '.issues[] | "  [\(.severity)] \(.component | sub("^[^:]*:";""))#L\(.line // "?") \(.rule) — \(.message)"'
+          echo "::endgroup::"
+          echo "::group::Fichiers les moins couverts"
+          curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/measures/component_tree?component=$PROJECT_KEY&metricKeys=coverage,uncovered_lines&qualifiers=FIL&metricSort=uncovered_lines&metricSortFilter=withMeasuresOnly&s=metric&asc=false&ps=40" \
+            | jq -r '.components[] | "  \(.path)  coverage=\((.measures[]|select(.metric=="coverage")|.value) // "?")%  uncovered=\((.measures[]|select(.metric=="uncovered_lines")|.value) // "?")"'
+          echo "::endgroup::"
 
           if [ "$QG_STATUS" != "OK" ]; then
             echo "Quality Gate Sonar non respectée (status=$QG_STATUS) — voir le dashboard pour le détail."
