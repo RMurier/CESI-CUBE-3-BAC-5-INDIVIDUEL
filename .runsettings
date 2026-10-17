@@ -8,4 +8,18 @@
   <RunConfiguration>
     <MaxCpuCount>1</MaxCpuCount>
   </RunConfiguration>
+  <!-- Config coverlet.collector (activé par --collect "XPlat Code Coverage") : format opencover
+       lu par Sonar. Le projet n'a que coverlet.collector, pas coverlet.msbuild, donc
+       /p:CollectCoverage=true n'avait aucun effet. -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>opencover</Format>
+          <Exclude>[*.Tests]*,[Collector.Testing]*</Exclude>
+          <ExcludeByFile>**/Migrations/**</ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
 </RunSettings>

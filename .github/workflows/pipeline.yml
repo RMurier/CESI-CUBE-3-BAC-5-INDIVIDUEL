@@ -179,8 +179,7 @@ jobs:
         # --settings .runsettings : exécution séquentielle, voir test-backend-integration.
         run: >
           dotnet test src/Collector.sln --no-build -c Release
-          --logger "trx" --settings .runsettings
-          /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+          --logger "trx" --settings .runsettings --collect "XPlat Code Coverage"
 
       - name: Test (frontend) avec couverture
         working-directory: src/frontend/web
