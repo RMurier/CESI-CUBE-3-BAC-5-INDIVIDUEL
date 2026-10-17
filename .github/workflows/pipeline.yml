@@ -345,9 +345,27 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+      - name: Installer Trivy
+        shell: bash
+        run: |
+          # get.trivy.dev (utilisé par aquasecurity/setup-trivy) renvoie du 404 sur toutes les
+          # versions au moment de ce commit (panne upstream) : on télécharge donc le binaire
+          # directement depuis les releases GitHub, vérifié par checksum.
+          set -euo pipefail
+          TRIVY_VERSION=0.69.3
+          ASSET="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -fsSL -o "${ASSET}" "${BASE_URL}/${ASSET}"
+          curl -fsSL -o checksums.txt "${BASE_URL}/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " ${ASSET}$" checksums.txt | sha256sum -c -
+          tar -xzf "${ASSET}" trivy
+          sudo mv trivy /usr/local/bin/trivy
+          trivy --version
+
       - name: Scan de vulnérabilités de l'image (Trivy)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: true
           image-ref: ${{ steps.tag.outputs.registry }}/collector-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
           severity: CRITICAL,HIGH
           exit-code: "1"
