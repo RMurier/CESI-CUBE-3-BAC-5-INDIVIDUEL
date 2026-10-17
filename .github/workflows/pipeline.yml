@@ -216,10 +216,14 @@ jobs:
           fi
 
           ANALYSIS_ID=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" "$CE_TASK_URL" | jq -r '.task.analysisId')
-          QG_STATUS=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" \
-            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" \
-            | jq -r '.projectStatus.status')
+          QG_JSON=$(curl -fsS -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+          QG_STATUS=$(echo "$QG_JSON" | jq -r '.projectStatus.status')
           echo "Quality Gate : $QG_STATUS"
+
+          # Affiche les conditions en échec pour diagnostiquer sans ouvrir le dashboard.
+          echo "$QG_JSON" | jq -r '.projectStatus.conditions[]? | select(.status != "OK")
+            | "  - \(.metricKey): \(.actualValue) (seuil \(.comparator) \(.errorThreshold)) → \(.status)"'
 
           if [ "$QG_STATUS" != "OK" ]; then
             echo "Quality Gate Sonar non respectée (status=$QG_STATUS) — voir le dashboard pour le détail."
