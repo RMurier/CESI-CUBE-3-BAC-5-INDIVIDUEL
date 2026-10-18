@@ -18,6 +18,21 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# L'image Next.js "standalone" ne lance que "node server.js" : le CLI npm, yarn et corepack
+# embarqués dans l'image de base node:22-alpine ne servent à rien à l'exécution, et Trivy y
+# détecte régulièrement des CVE HIGH (ex. brace-expansion, pacote, picomatch — dépendances de
+# npm lui-même, pas de l'app). On les retire du stage final.
+RUN rm -rf \
+    /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack \
+    /usr/local/bin/yarn \
+    /usr/local/bin/yarnpkg \
+    /opt/yarn-v*
+
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Fichiers appartenant à root et en lecture seule (0555) : appuser peut les lire/exécuter mais pas
