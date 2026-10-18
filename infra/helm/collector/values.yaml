@@ -23,8 +23,8 @@ services:
     dbName: identity
     ingress:
       enabled: true
-      pathPrefix: /api/auth
-      stripPrefix: false
+      pathPrefix: /api/identity
+      stripPrefix: true
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }
@@ -38,7 +38,7 @@ services:
     ingress:
       enabled: true
       pathPrefix: /api/catalog
-      stripPrefix: false
+      stripPrefix: true
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }
@@ -66,7 +66,7 @@ services:
     ingress:
       enabled: true
       pathPrefix: /api/notifications
-      stripPrefix: false
+      stripPrefix: true
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }

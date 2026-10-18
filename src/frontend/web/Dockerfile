@@ -13,6 +13,14 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/frontend/web/ .
+# NEXT_PUBLIC_* est figé dans le bundle au build : chemins relatifs (même domaine que le frontend,
+# routage Traefik) pour que la même image serve dev, uat et prod. Surchargeables via --build-arg.
+ARG NEXT_PUBLIC_IDENTITY_API_URL=/api/identity
+ARG NEXT_PUBLIC_CATALOG_API_URL=/api/catalog
+ARG NEXT_PUBLIC_NOTIFICATION_API_URL=/api/notifications
+ENV NEXT_PUBLIC_IDENTITY_API_URL=$NEXT_PUBLIC_IDENTITY_API_URL \
+    NEXT_PUBLIC_CATALOG_API_URL=$NEXT_PUBLIC_CATALOG_API_URL \
+    NEXT_PUBLIC_NOTIFICATION_API_URL=$NEXT_PUBLIC_NOTIFICATION_API_URL
 RUN npm run build
 
 FROM node:22-alpine AS runtime

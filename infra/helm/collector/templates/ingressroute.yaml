@@ -31,11 +31,31 @@ spec:
     - match: Host(`{{ $root.Values.global.domain }}`) && PathPrefix(`{{ $svc.ingress.pathPrefix }}`)
       kind: Rule
       priority: {{ if eq $svc.ingress.pathPrefix "/" }}1{{ else }}10{{ end }}
+      {{- if $svc.ingress.stripPrefix }}
+      middlewares:
+        - name: collector-strip-{{ $name }}
+      {{- end }}
       services:
         - name: {{ include "collector.fullname" (dict "serviceName" $name) }}
           port: 80
     {{- end }}
     {{- end }}
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.ingress.enabled $svc.ingress.stripPrefix }}
+---
+# Les API .NET exposent leurs routes à la racine (/auth/login, /articles...) : Traefik retire le
+# préfixe de routage (ex. /api/catalog) avant de transmettre la requête.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: collector-strip-{{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  stripPrefix:
+    prefixes:
+      - {{ $svc.ingress.pathPrefix }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
