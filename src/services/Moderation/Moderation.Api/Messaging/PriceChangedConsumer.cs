@@ -9,7 +9,7 @@ namespace Moderation.Api.Messaging;
 /// <summary>
 /// Reçoit chaque changement de prix (exigence contexte : "la notification de changement de prix doit
 /// être aussi reçue par un composant back-office de détection des fraudes"). Flague comme suspecte
-/// toute variation de plus de 50 % — heuristique simple pour le POC.
+/// les cas jugés suspects par l'<see cref="IFraudDetector"/> configuré (heuristique par règles par défaut).
 /// </summary>
 public sealed class PriceChangedConsumer(
     IOptions<RabbitMqOptions> options,
@@ -17,8 +17,6 @@ public sealed class PriceChangedConsumer(
     ILogger<PriceChangedConsumer> logger)
     : RabbitMqConsumer<PriceChangedEvent>(options, "moderation.price-changed", scopeFactory, logger)
 {
-    private const double SuspiciousVariationThreshold = 0.5;
-
     protected override async Task HandleAsync(
         PriceChangedEvent message,
         IServiceProvider scopedServices,
@@ -26,19 +24,13 @@ public sealed class PriceChangedConsumer(
     {
         var db = scopedServices.GetRequiredService<ModerationDbContext>();
 
-        var variation = message.PreviousPrice == 0
-            ? 1.0
-            : (double)Math.Abs(message.NewPrice - message.PreviousPrice) / (double)message.PreviousPrice;
-
-        var suspicious = variation > SuspiciousVariationThreshold;
+        var verdict = scopedServices.GetRequiredService<IFraudDetector>().AssessPriceChange(message);
 
         db.Decisions.Add(new ModerationDecision
         {
             ArticleId = message.ArticleId,
-            Approved = !suspicious,
-            RejectionReason = suspicious
-                ? $"Variation de prix suspecte : {variation:P0} ({message.PreviousPrice:C} → {message.NewPrice:C})"
-                : null,
+            Approved = !verdict.Suspicious,
+            RejectionReason = verdict.Reason,
         });
 
         await db.SaveChangesAsync(cancellationToken);

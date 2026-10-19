@@ -26,6 +26,22 @@ spec:
   tls:
     secretName: collector-tls
   routes:
+    {{- if .Values.maintenance.allowedCidrs }}
+    {{- range $name, $svc := .Values.services }}
+    {{- if and $svc.ingress.enabled $svc.maintenance }}
+    # Routes /internal/* réservées aux IP autorisées (Airflow) : prioritaires sur la route générale du service.
+    - match: Host(`{{ $root.Values.global.domain }}`) && PathPrefix(`{{ $svc.ingress.pathPrefix }}/internal`)
+      kind: Rule
+      priority: 20
+      middlewares:
+        - name: collector-maintenance-allow
+        - name: collector-strip-{{ $name }}
+      services:
+        - name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+          port: 80
+    {{- end }}
+    {{- end }}
+    {{- end }}
     {{- range $name, $svc := .Values.services }}
     {{- if $svc.ingress.enabled }}
     - match: Host(`{{ $root.Values.global.domain }}`) && PathPrefix(`{{ $svc.ingress.pathPrefix }}`)
@@ -83,3 +99,17 @@ spec:
       services:
         - name: {{ include "collector.fullname" (dict "serviceName" "frontend") }}
           port: 80
+{{- if .Values.maintenance.allowedCidrs }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: collector-maintenance-allow
+  namespace: {{ .Release.Namespace }}
+spec:
+  ipAllowList:
+    sourceRange:
+      {{- range .Values.maintenance.allowedCidrs }}
+      - {{ . | quote }}
+      {{- end }}
+{{- end }}

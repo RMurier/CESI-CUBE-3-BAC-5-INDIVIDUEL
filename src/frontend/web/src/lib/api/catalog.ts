@@ -5,6 +5,7 @@ export const ArticleStatus = {
   PendingReview: 0,
   Published: 1,
   Rejected: 2,
+  Sold: 3,
 } as const;
 
 export type ArticleStatusCode = (typeof ArticleStatus)[keyof typeof ArticleStatus];
@@ -40,6 +41,8 @@ export function articleStatusLabel(status: ArticleStatusCode): string {
       return "En ligne";
     case ArticleStatus.Rejected:
       return "Rejeté";
+    case ArticleStatus.Sold:
+      return "Vendu";
     default:
       return "En cours de contrôle";
   }

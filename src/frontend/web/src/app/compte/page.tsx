@@ -3,12 +3,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { PayoutSetup } from "@/components/PayoutSetup";
 import { useAuth } from "@/lib/auth-context";
 import { createShop } from "@/lib/api/catalog";
 import { addKnownShop, getKnownShops } from "@/lib/known-shops";
 
 export default function AccountPage() {
-  const { auth, loading, becomeSeller } = useAuth();
+  const { auth, loading, becomeSeller, getToken } = useAuth();
   const router = useRouter();
 
   const [becoming, setBecoming] = useState(false);
@@ -49,7 +50,7 @@ export default function AccountPage() {
     setShopError(null);
     setCreatingShop(true);
     try {
-      const shop = await createShop(auth!.token, shopName, shopDescription);
+      const shop = await createShop(await getToken(), shopName, shopDescription);
       addKnownShop(auth!.userId, { id: shop.id, name: shop.name });
       setShopName("");
       setShopDescription("");
@@ -88,6 +89,7 @@ export default function AccountPage() {
 
       {isSeller && (
         <section className="flex flex-col gap-6">
+          <PayoutSetup />
           <div className="flex flex-col gap-3 rounded-xl border border-black/[.08] p-5 dark:border-white/[.145]">
             <h2 className="text-lg font-semibold">Créer une boutique</h2>
             <form onSubmit={handleCreateShop} className="flex flex-col gap-3">

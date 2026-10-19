@@ -1,0 +1,30 @@
+image: grafana/grafana:11.3.1
+
+# DNS à créer (A -> IP du serveur) ; certificat Let's Encrypt via cert-manager (ClusterIssuer "letsencrypt").
+host: grafana.collector.romainmurier.com
+
+prometheusUrl: http://prometheus:9090
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 300m, memory: 256Mi }
+
+# Secrets dans Infisical (jamais dans le dépôt), synchronisés vers un Secret K8s par l'Infisical Secrets
+# Operator déjà installé pour l'application. Clés attendues dans le projet/scope ci-dessous :
+#   GRAFANA_ADMIN_PASSWORD   (obligatoire)   mot de passe du compte admin
+#   GRAFANA_ADMIN_USER       (optionnel)     défaut : admin
+infisical:
+  enabled: true
+  hostApiUrl: "https://app.infisical.com/api"
+  projectId: "29ff6457-51ec-40b2-9b29-685336061df1"   # même projet que l'application
+  environmentSlug: prod        # la stack de monitoring est unique pour dev/uat/prod : un seul scope
+  secretsPath: /monitoring     # dossier dédié, séparé des secrets applicatifs
+  secretName: grafana-secrets
+  machineIdentitySecretName: infisical-machine-identity
+  # Passés par le pipeline (--set-string) depuis les GitHub Secrets INFISICAL_CLIENT_ID/SECRET, comme l'application.
+  machineIdentity:
+    clientId: ""
+    clientSecret: ""
+
+# Pods autorisés à joindre Grafana : Traefik (kube-system).
+trafficNamespace: kube-system

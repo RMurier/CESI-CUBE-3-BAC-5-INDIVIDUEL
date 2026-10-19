@@ -9,7 +9,10 @@ metadata:
   labels:
     {{- include "collector.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
 spec:
+  {{- /* Avec un HPA, le nombre de réplicas appartient à l'autoscaler : ne pas le fixer ici (sinon chaque helm upgrade le réinitialise). */}}
+  {{- if not (and $svc.hpa $svc.hpa.enabled) }}
   replicas: {{ $svc.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ $name }}
@@ -18,6 +21,11 @@ spec:
     metadata:
       labels:
         {{- include "collector.labels" (dict "root" $root "serviceName" $name) | nindent 8 }}
+      {{- if and (ne $name "frontend") $root.Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $root.Values.metrics.port | quote }}
+      {{- end }}
     spec:
       containers:
         - name: {{ $name }}
@@ -69,4 +77,29 @@ spec:
     - name: http
       port: 80
       targetPort: http
+{{- if and $svc.hpa $svc.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "collector.fullname" (dict "serviceName" $name) }}
+  minReplicas: {{ $svc.hpa.minReplicas }}
+  maxReplicas: {{ $svc.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.targetCpuUtilization }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ $svc.hpa.scaleDownStabilizationSeconds | default 120 }}
+{{- end }}
 {{- end }}

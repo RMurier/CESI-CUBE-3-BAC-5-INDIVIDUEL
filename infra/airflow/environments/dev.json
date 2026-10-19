@@ -1,0 +1,4 @@
+{
+  "dev": { "base_url": "https://dev.collector.romainmurier.com", "key_variable": "collector_dev_maintenance_key" },
+  "uat": { "base_url": "https://uat.collector.romainmurier.com", "key_variable": "collector_uat_maintenance_key" }
+}

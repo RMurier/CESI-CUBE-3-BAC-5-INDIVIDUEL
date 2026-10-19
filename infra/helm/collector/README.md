@@ -3,6 +3,9 @@
 Un seul chart, une valeur par environnement. Déployer sur dev/uat/prod ne change **aucun template**
 — uniquement le fichier `values-<env>.yaml` et le tag d'image (`--set global.imageTag=...`).
 
+Ce chart ne contient que **l'application**. Le monitoring (`infra/prometheus`, `infra/kube-state-metrics`, `infra/grafana`,
+`infra/headlamp`) et les DAGs Airflow (`infra/airflow`) ont chacun leur dossier, déployés en parallèle par `pipeline.yml`.
+
 ## Prérequis sur le cluster K3s (à faire une fois, hors chart)
 
 1. **Traefik** — déjà fourni par défaut par k3s (`--disable traefik` NON utilisé à l'installation).
@@ -40,6 +43,9 @@ doit utiliser le `MSSQL_SA_PASSWORD__<service>` **du même service**, jamais cel
 | `MSSQL_SA_PASSWORD__moderation` | StatefulSet `collector-moderation-sql` |
 | `ConnectionStrings__moderation` | Moderation.Api (idem `collector-moderation-sql` / `Database=moderation` / `MSSQL_SA_PASSWORD__moderation`) |
 | `RabbitMq__UserName` / `RabbitMq__Password` | RabbitMQ (StatefulSet) + tous les services consommateurs |
+| `Stripe__SecretKey` | Catalog (création des sessions Stripe Checkout) — `sk_test_...` en dev/uat. Absente = paiement désactivé (`POST /orders` répond 503). **Connect doit être activé** sur le compte Stripe (onboarding vendeur), le service démarre quand même |
+| `Maintenance__ApiKey` | Identity, Catalog (endpoints `/internal/*` appelés par Airflow) — une valeur par environnement, identique à la Variable Airflow `collector_<env>_maintenance_key`. Absente = endpoints désactivés (404) |
+| `Stripe__WebhookSecret` | Catalog (vérification de la signature des webhooks) — `whsec_...` du endpoint `https://<domaine>/api/catalog/webhooks/stripe` créé dans le dashboard Stripe. **Un endpoint (donc un `whsec_`) par environnement** : chaque scope Infisical porte le sien |
 
 **`KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID` et `INFISICAL_CLIENT_SECRET` ne sont volontairement PAS
 dans cette liste** : ce sont des secrets d'infra CI/CD, pas des secrets applicatifs — même cluster
@@ -67,3 +73,28 @@ helm upgrade --install collector infra/helm/collector \
 helm lint infra/helm/collector -f infra/helm/collector/values-dev.yaml
 helm template collector infra/helm/collector -f infra/helm/collector/values-dev.yaml --namespace collector-dev
 ```
+
+
+## Monitoring (quatre charts séparés)
+
+Prometheus, kube-state-metrics, Grafana et Headlamp ont chacun leur dossier et leur chart Helm, déployés par le job `deploy-monitoring` de `pipeline.yml` (en parallèle de deploy-dev/uat/prod, mêmes conditions et mêmes environnements GitHub, donc approbation sur master)
+à **chaque push sur `develop`, `uat` ou `master`** (comme l'application) : modifier `infra/prometheus/files/prometheus.yml` ou un dashboard de
+`infra/grafana/dashboards/` puis pousser suffit, le pod redémarre seul. Une seule stack, namespace `collector-monitoring`,
+qui surveille les 3 environnements.
+
+Prérequis manuels (une fois) :
+- DNS `grafana.collector.romainmurier.com` et `headlamp.collector.romainmurier.com` (A -> IP du serveur, modifiables via `host` dans `infra/grafana/values.yaml` et `infra/headlamp/values.yaml`) ; chaque chart crée son certificat Let's Encrypt, sa route HTTPS Traefik et la redirection HTTP -> HTTPS ;
+- dans **Infisical** (même projet que l'application, environnement `prod`, dossier `/monitoring`) : `GRAFANA_ADMIN_PASSWORD`
+  (obligatoire) et `GRAFANA_ADMIN_USER` (optionnel, défaut `admin`). Sans la première, le pod Grafana reste en attente du Secret ;
+- la Machine Identity Infisical doit avoir accès à ce dossier (ce sont les mêmes `INFISICAL_CLIENT_ID/SECRET` que l'application).
+- Headlamp (interface Kubernetes en lecture seule, `infra/headlamp`) : connexion avec un jeton
+  `view` (aucun droit d'écriture, pas d'accès aux Secrets) :
+  `kubectl -n collector-monitoring get secret headlamp-viewer-token -o jsonpath='{.data.token}' | base64 -d`.
+  Pour restreindre l'accès à ton IP : `allowedCidrs` dans `infra/headlamp/values.yaml` (Traefik v3).
+
+La stack de monitoring comporte quatre charts, tous déployés par le même job : `infra/prometheus`, `infra/kube-state-metrics`
+(état des pods, des réplicas et du HPA), `infra/grafana` (dashboards « vue d'ensemble » et « Scalabilité ») et `infra/headlamp`.
+Prometheus scrape aussi cAdvisor (CPU/mémoire réels des conteneurs) et accepte le `remote-write` de k6 (voir `load-tests/README.md`).
+
+Les services exposent `/metrics` sur le port `9090` (jamais routé par Traefik) ; Prometheus les
+découvre via les annotations `prometheus.io/*` des pods. RabbitMQ est scrapé sur son plugin natif (port 15692).

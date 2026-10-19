@@ -1,0 +1,123 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . -}}
+# Isolation réseau (ingress) : k3s embarque un contrôleur NetworkPolicy (kube-router) qui les applique.
+# Principe : tout est refusé par défaut, puis on ouvre le strict nécessaire. Une instance SQL Server
+# n'est joignable QUE par son propre service (cf. isolation par instance, README section 4) : un
+# service compromis ne peut pas ouvrir une connexion TDS vers la base d'un autre service.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+{{- range $name, $svc := .Values.services }}
+{{- if $svc.db }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-sql-from-{{ $name }}-only
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-sql
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+              app.kubernetes.io/instance: {{ $root.Release.Name }}
+      ports:
+        - { protocol: TCP, port: 1433 }
+{{- end }}
+{{- end }}
+---
+# RabbitMQ : seuls les services applicatifs (pas le frontend) parlent AMQP. Le port management
+# (15672) n'est volontairement ouvert à personne.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-amqp-from-services
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  {{- range $name, $svc := .Values.services }}
+                  {{- if $svc.db }}
+                  - {{ $name }}
+                  {{- end }}
+                  {{- end }}
+      ports:
+        - { protocol: TCP, port: 5672 }
+    # Métriques RabbitMQ : uniquement le namespace de monitoring, sur le port du plugin Prometheus.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+      ports:
+        - { protocol: TCP, port: 15692 }
+---
+# Services applicatifs : joignables par Traefik (kube-system), par le namespace de monitoring
+# (scrape /metrics) et par les autres pods du même namespace (appels HTTP inter-services).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: services-http-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          {{- range $name, $svc := .Values.services }}
+          - {{ $name }}
+          {{- end }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: collector
+              app.kubernetes.io/instance: {{ .Release.Name }}
+---
+# Pods éphémères du challenge HTTP-01 de cert-manager : Traefik doit pouvoir les joindre, sinon le
+# renouvellement des certificats Let's Encrypt échoue silencieusement.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-http01-solver
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+{{- end }}

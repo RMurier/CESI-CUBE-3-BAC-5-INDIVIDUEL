@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getArticle, type Article } from "@/lib/api/catalog";
+import { ArticleStatus, getArticle, type Article } from "@/lib/api/catalog";
+import { BuyButton } from "@/components/BuyButton";
 import { StatusBadge } from "@/components/StatusBadge";
 
 const currency = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -49,6 +50,8 @@ export function ArticleDetailClient({ id }: { id: string }) {
           </div>
         )}
       </div>
+
+      {article.status === ArticleStatus.Published && <BuyButton articleId={article.id} />}
 
       {article.rejectionReason && (
         <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">

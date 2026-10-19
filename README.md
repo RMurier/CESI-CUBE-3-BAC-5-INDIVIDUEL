@@ -144,11 +144,16 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Version .NET | **.NET 10 (LTS)** | 2026-10-11 | Dernière LTS disponible à la date du projet |
 | Observabilité (logs) | **Omnia** (outil propriétaire de l'utilisateur, omnia-monitoring.com) | 2026-10-11 | À intégrer — détails d'intégration à préciser (voir questions ouvertes) |
 | Observabilité (métriques) | **Prometheus + Grafana**, en complément d'Omnia si besoin | 2026-10-11 | Standard K8s, dashboards de charge utiles en soutenance |
-| Load testing | Siege ou JMeter (cité dans les consignes) | — | Outil précis non tranché, voir questions ouvertes |
+| Load testing | **k6** (scénario versionné dans `load-tests/`) | 2026-10-19 | Scriptable en JS, seuils qui font échouer le run (réutilisable en gate), ~50 Mo de RAM ; équivalent accepté par les consignes (« Siege/JMeter ou équivalent ») |
 | Stratégie de branches | **`develop`→dev, `uat`→uat, `master`→prod** (push direct, pas de tags), déploiement prod protégé par l'environnement GitHub "production" (reviewer requis) | 2026-10-14 | Le repo utilise `master` comme branche par défaut (pas `main`) — alignement du pipeline CD sur les branches réelles, schéma tag-based abandonné pour rester simple en solo dev |
 | Nom de domaine | **romainmurier.com** : `dev.collector.romainmurier.com` (dev), `uat.collector.romainmurier.com` (uat), `collector.romainmurier.com` (prod) | 2026-10-14 | Domaine personnel de l'utilisateur, déjà configurable (DNS + cert-manager/Let's Encrypt) |
 | Séparation des secrets | **GitHub** (secrets de **repo**, une seule valeur de chaque) = secrets d'infra CI/CD : `KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, `SONAR_HOST_URL`/`SONAR_TOKEN`. **Infisical** = secrets applicatifs uniquement, jamais lus par la CI — synchronisés en continu vers K8s par l'Infisical Secrets Operator (`resyncInterval: 60`), dont le Secret d'auth (`infisical-machine-identity`) est lui-même reprovisionné à chaque déploiement via `--set` depuis les GitHub Secrets ci-dessus | 2026-10-15 | Les 3 environnements tournent sur le **même cluster OVH physique** : ce sont des valeurs identiques pour dev/uat/prod, donc secret de repo (pas de secret d'environnement — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production`, dupliquer la valeur n'ajoutait aucune barrière réelle en plus). Objectif annexe : changer de serveur (nouveau `KUBE_CONFIG_B64`) ne doit demander aucune étape manuelle côté Infisical — satisfait en faisant provisionner `infisical-machine-identity` par le chart lui-même |
 | Mot de passe SQL Server par service | `MSSQL_SA_PASSWORD__<service>` : **une valeur `sa` distincte par service** (5 clés Infisical, pas 1 partagée) | 2026-10-16 | Avoir 5 instances SQL Server isolées mais un seul mot de passe `sa` partagé entre elles annulait une partie du bénéfice de l'isolation (critère grille #2) : une connection string qui fuite donnait accès `sa` aux 4 autres bases. Le mot de passe varie aussi naturellement par environnement puisque dev/staging/prod sont des scopes Infisical séparés |
+| Paiement | **Stripe Checkout hébergé** en mode test + **Stripe Connect Express** : *destination charge* avec `application_fee_amount`. La commission de 5 % (calculée sur article + port) est **figée et persistée** sur la commande (`Order.CommissionAmount`) et réellement retenue par la plateforme ; le net part sur le compte Connect du vendeur. Un vendeur sans compte Connect actif ne peut pas vendre. Code derrière `IPaymentGateway` (testable sans réseau) | 2026-10-20 | Aucune donnée de carte ni bancaire chez Collector (périmètre PCI minimal), commission réellement prélevée même en démo (exigence utilisateur) |
+| Traitements récurrents | **Airflow existant** de l'utilisateur (aucune nouvelle instance) : endpoints `/internal/*` protégés par `X-Maintenance-Key` (404 si clé absente) appelés par 3 DAGs (`collector_expire_pending_orders`, `collector_purge_refresh_tokens`, `collector_commission_report`), pas de scheduler dans les services. Convention des dépôts `{app}-airflow` : fichiers à plat préfixés `collector_`, un fichier par DAG. dev **et** uat partagent l'instance dev (`/opt/airflow-dev`), une tâche par environnement (`expand`), prod sur `/opt/airflow-prod` | 2026-10-20 | Un seul fichier par DAG pour 2 environnements, aucune collision avec omnia/porty (préfixe), l'instance dev ne peut pas atteindre la prod |
+| Stack de monitoring | **Prometheus + kube-state-metrics + Grafana + Headlamp**, un chart par dossier (`infra/prometheus`, `infra/kube-state-metrics`, `infra/grafana`, `infra/headlamp`), un seul namespace `collector-monitoring` pour les 3 environnements. **Pas d'ArgoCD** (le pipeline fait déjà `helm upgrade`), pas de Loki (logs = Omnia), pas d'Alertmanager. Mot de passe admin Grafana dans Infisical (`/monitoring`). Headlamp en lecture seule (jeton `view`) | 2026-10-20 | RAM limitée sur un serveur unique ; voir les pods se créer pendant les tests de charge sans outil GitOps |
+| Déploiements annexes | Monitoring (`deploy-monitoring`) et DAGs Airflow (`deploy-airflow`) se déploient **en parallèle** de `deploy-dev/uat/prod`, avec les mêmes conditions : `needs: build-and-push`, mêmes branches, mêmes environnements GitHub (approbation « production » sur master) | 2026-10-20 | « Mis à jour à chaque push comme l'application » (exigence utilisateur) |
+| Interface de test de charge | **Serveur local Node sans dépendance** (`load-tests/ui`) : k6 sur 1 à N environnements en parallèle, logs en direct, panneau pods/HPA via kubectl, envoi des métriques k6 vers Prometheus (remote-write via port-forward) | 2026-10-20 | Démo configurable sans ligne de commande ; prod plafonnée et confirmée |
 
 ---
 
@@ -222,24 +227,38 @@ flowchart TB
 ### Services (tous ASP.NET Core / C#)
 
 1. **Identity** (`src/services/Identity/Identity.Api`) — comptes acheteur/vendeur/admin, rôles,
-   `POST /auth/register`, `POST /auth/login` (émission JWT), `POST /auth/become-seller`. Tout compte
-   est acheteur par défaut, le switch de rôle acheteur ↔ vendeur se fait via ce dernier endpoint.
+   `POST /auth/register`, `POST /auth/login` (JWT d'accès 15 min + refresh token), `POST /auth/refresh`
+   (rotation, détection de rejeu), `POST /auth/logout` (révocation), `POST /auth/become-seller`. Rate limiting
+   sur `/auth/*`. Tout compte est acheteur par défaut, le switch de rôle acheteur ↔ vendeur se fait via
+   `become-seller`. `POST /internal/maintenance/purge-refresh-tokens` (clé de maintenance, appelé par Airflow).
 2. **Catalog & Shop** (`src/services/Catalog/Catalog.Api`) — boutiques virtuelles (1 vendeur → N
    boutiques), articles (`POST /shops`, `POST /shops/{id}/articles`, `GET /articles` catalogue public,
-   `PUT /articles/{id}/price`), publication des événements `ArticleSubmittedEvent` / `ArticlePublishedEvent`
-   / `PriceChangedEvent`, consomme `ArticleModerationResultEvent` pour faire passer l'article en ligne.
+   `PUT /articles/{id}/price` ; seul le vendeur propriétaire de la boutique peut y publier ou changer un prix),
+   publication des événements `ArticleSubmittedEvent` / `ArticlePublishedEvent` / `PriceChangedEvent` /
+   `OrderPaidEvent`, consomme `ArticleModerationResultEvent` pour faire passer l'article en ligne.
+   **Commandes et paiement** : `POST /orders` (Stripe Checkout, commission 5 % retenue), `GET /orders/mine`,
+   `GET /orders/{id}`, `POST /webhooks/stripe` (signature vérifiée, idempotent). **Onboarding vendeur** Stripe
+   Connect : `POST /seller/payout-account/onboarding`, `GET /seller/payout-account`. **Maintenance** (Airflow) :
+   `POST /internal/maintenance/expire-pending-orders`, `GET /internal/reports/commissions`.
 3. **Chat** (`src/services/Chat/Chat.Api`) — `ChatHub` SignalR (`/hubs/chat`, JWT via query string
    `access_token`), historique persistant, **filtrage automatique email/téléphone** dans les messages
    (anti-contournement du paiement, `PersonalDataFilter`).
 4. **Notification** (`src/services/Notification/Notification.Api`) — `POST /subscriptions` (centres
    d'intérêt acheteur), consomme `ArticlePublishedEvent` et notifie (in-app + email stub via
-   `IEmailSender`, fournisseur SMTP réel à brancher plus tard) les acheteurs dont un mot-clé matche.
+   `IEmailSender`, fournisseur SMTP réel à brancher plus tard) les acheteurs dont un mot-clé matche ;
+   consomme aussi `OrderPaidEvent` (confirmation à l'acheteur, « article vendu » au vendeur).
 5. **Moderation/Fraud** (`src/services/Moderation/Moderation.Api`) — consomme `ArticleSubmittedEvent`
    (règles auto. : prix/description/titre) et publie `ArticleModerationResultEvent` ; consomme aussi
    `PriceChangedEvent` pour flaguer les variations de prix suspectes (> 50 %). Trace d'audit persistée
-   (`ModerationDecision`) ; point d'extension pour un futur outil de détection de fraude externe
-   (build/buy non tranché par la direction).
+   (`ModerationDecision`) ; la détection passe par l'interface `IFraudDetector` (implémentation par règles
+   aujourd'hui) : brancher un outil externe = ajouter une implémentation et changer l'enregistrement DI,
+   sans toucher aux consumers (build/buy non tranché par la direction).
 6. **Frontend** (`src/frontend/web`) — Next.js (App Router), `output: "standalone"` pour l'image Docker.
+   Headers de sécurité (HSTS, CSP en production), renouvellement automatique du jeton d'accès, achat via
+   Stripe Checkout, pages `/commandes`, onboarding des paiements vendeur sur `/compte`.
+
+**Hors services** (dossier `infra/`) : `helm/collector` (l'application), `prometheus`, `kube-state-metrics`, `grafana`,
+`headlamp` (monitoring) et `airflow` (DAGs de maintenance + déploiement vers l'Airflow existant).
 
 **Traefik** n'est pas un service applicatif du repo : c'est l'ingress déjà présent sur le cluster k3s
 OVH, configuré via les `IngressRoute`/`Middleware` du chart Helm (`infra/helm/collector`).
@@ -297,8 +316,17 @@ elle-même (`sonarscanner begin`/`end`), impossible de le brancher après coup s
 ailleurs. Une seule analyse Sonar couvre donc backend **et** frontend (pas deux projets séparés).
 `build-and-push` exige (`needs:`) que les **cinq** jobs de qualité aient réussi : un test ou un scan
 en échec bloque tout déploiement, pas juste un warning affiché à côté. Tous les jobs de qualité
-tournent sur PR et push ; `build-and-push` et les 3 déploiements ne tournent que sur push (jamais
+tournent sur PR et push ; `build-and-push` et les déploiements ne tournent que sur push (jamais
 sur une PR).
+
+En plus des trois `deploy-dev/uat/prod`, deux jobs tournent **en parallèle d'eux avec exactement les mêmes
+conditions** (`needs: build-and-push`, mêmes branches, mêmes environnements GitHub, donc approbation
+« production » sur master) : `deploy-monitoring` (Prometheus, kube-state-metrics, Headlamp, Grafana,
+dans le namespace `collector-monitoring`) et `deploy-airflow` (DAGs vers l'instance dev pour develop/uat, prod
+pour master, voir `infra/airflow/README.md`). Chaque push modifiant un chart de monitoring ou un DAG est donc
+redéployé sans action manuelle ; les pods redémarrent seuls quand leur config change (annotation `checksum`).
+Hors `pipeline.yml` : `codeql.yml` (analyse statique C# et TypeScript) et Dependabot (NuGet, npm, Docker,
+Actions). Le job `build-and-push` publie aussi un SBOM CycloneDX par image.
 
 ```mermaid
 flowchart TD
@@ -318,6 +346,8 @@ flowchart TD
     G -->|push develop| H["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
     G -->|push uat| I["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
     G -->|push master| J["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
+    F --> K["deploy-monitoring (en parallèle, mêmes conditions)<br/>Prometheus + kube-state-metrics + Headlamp + Grafana<br/>namespace collector-monitoring"]
+    F --> L["deploy-airflow (en parallèle, mêmes conditions)<br/>develop/uat → instance dev · master → instance prod<br/>dags collector_* par SSH"]
 ```
 
 **Séparation stricte des deux magasins de secrets** (décision 2026-10-15, voir section 4) :
@@ -357,6 +387,18 @@ voir `infra/helm/collector/README.md`.
 - **Secrets** : Infisical (pas de secret en clair dans le repo ni dans les manifests K8s — injection
   via opérateur Infisical ou init-container).
 - **Scan de vulnérabilités** : dépendances (NuGet/npm audit) + images Docker (Trivy) dans le pipeline.
+- **Authentification renforcée** : rate limiting par IP sur `/auth/*` (anti brute force), JWT d'accès 15 min,
+  refresh tokens opaques à usage unique (seul leur hash SHA-256 est stocké) avec détection de rejeu (rejeu d'un
+  jeton révoqué = révocation de toute la famille), `/auth/logout`.
+- **Autorisation** : un vendeur ne publie que dans ses boutiques et ne modifie que ses prix (403 sinon, testé) ;
+  une commande n'est lisible que par son acheteur et son vendeur (404 pour un tiers).
+- **Paiement** : Stripe Checkout hébergé (aucune donnée de carte ni bancaire chez Collector), webhook à
+  **signature HMAC vérifiée** (rejeu et falsification testés), traitement idempotent.
+- **Réseau** : NetworkPolicies Helm (refus par défaut ; une instance SQL Server n'est joignable que par son
+  propre service ; AMQP réservé aux services ; `/metrics` sur un port dédié jamais routé par Traefik).
+- **Endpoints de maintenance** `/internal/*` : clé partagée (comparaison à temps constant), désactivés sans
+  clé, restriction d'IP optionnelle sur Traefik (`maintenance.allowedCidrs`).
+- **Supply chain** : Dependabot, CodeQL, scan Trivy des images, SBOM CycloneDX par image.
 - **Anti-contournement paiement** : filtrage/masquage des patterns email/téléphone dans le chat —
   **implémenté** (`Chat.Api/Domain/PersonalDataFilter.cs`, regex appliquée dans `ChatHub.SendMessage`).
 - **DevSecOps par étape du cycle de vie** (à détailler en phase 1 des consignes) :
@@ -398,35 +440,42 @@ voir `infra/helm/collector/README.md`.
 │   │   ├── Collector.Contracts/    ← DTOs d'événements RabbitMQ (ArticleSubmittedEvent, ...)
 │   │   └── Collector.Messaging/    ← IEventBus/RabbitMqEventBus + RabbitMqConsumer<T> générique
 │   ├── services/
-│   │   ├── Identity/Identity.Api/      ← comptes, JWT (xUnit à ajouter : tests non encore écrits)
-│   │   ├── Catalog/Catalog.Api/        ← boutiques, articles, publication d'événements
+│   │   ├── Identity/Identity.Api/      ← comptes, JWT + refresh tokens, rate limiting
+│   │   ├── Catalog/Catalog.Api/        ← boutiques, articles, commandes Stripe Connect, événements
 │   │   ├── Chat/Chat.Api/              ← SignalR + filtrage anti-contournement
 │   │   ├── Notification/Notification.Api/ ← abonnements + emails stub
-│   │   └── Moderation/Moderation.Api/  ← règles auto. + audit trail
+│   │   └── Moderation/Moderation.Api/  ← règles auto. + audit trail + IFraudDetector
 │   │       (chaque *.Api/ contient : Dockerfile, appsettings.json, appsettings.Development.json)
 │   └── frontend/web/                ← Next.js (App Router, TypeScript, Tailwind), Dockerfile
 │       └── src/app/                 ← catalogue, login/register, compte, boutiques/[id], articles/[id],
-│                                        notifications — cf. section 10.1
-├── infra/helm/collector/
-│   ├── Chart.yaml, values.yaml, values-dev.yaml, values-uat.yaml, values-prod.yaml
-│   ├── README.md                   ← prérequis cluster + clés Infisical attendues
-│   └── templates/                  ← services.yaml (Deployment+Service en boucle), sqlserver/,
-│                                      rabbitmq.yaml, ingressroute.yaml, infisical-secret.yaml, configmap.yaml
-├── load-tests/                     ← vide, scripts Siege/JMeter à ajouter (Phase C)
+│                                        notifications, commandes — cf. section 10.1
+├── infra/
+│   ├── helm/collector/             ← l'application (un chart, une values par environnement)
+│   │   ├── Chart.yaml, values.yaml, values-dev.yaml, values-uat.yaml, values-prod.yaml
+│   │   ├── README.md               ← prérequis cluster + clés Infisical attendues
+│   │   └── templates/              ← services.yaml (Deployment+Service+HPA en boucle), sqlserver/, rabbitmq.yaml,
+│   │                                  ingressroute.yaml, networkpolicies.yaml, infisical-secret.yaml, configmap.yaml
+│   ├── prometheus/                 ← chart Prometheus (config dans files/prometheus.yml)
+│   ├── kube-state-metrics/         ← chart : état des pods / réplicas / HPA
+│   ├── grafana/                    ← chart Grafana (dashboards/ provisionnés, secrets Infisical)
+│   ├── headlamp/                   ← chart : interface Kubernetes en lecture seule
+│   └── airflow/                    ← DAGs collector_* + environments/ + deploy-dags.sh (vers l'Airflow existant)
+├── load-tests/                     ← scripts k6 (catalog-read.js, browse.js) + ui/ (interface locale) + README
 └── .github/workflows/
-    └── pipeline.yml                ← build/test/Sonar (.NET) + lint/build (frontend) -> build+push
-                                        6 images GHCR, scan Trivy -> déploiement dev/uat/prod (bloqué
-                                        si backend ou frontend échoue, voir section 7)
+    ├── pipeline.yml                ← build/test/Sonar (.NET) + lint/build (frontend) -> build+push
+    │                                   6 images GHCR, scan Trivy, SBOM -> déploiement dev/uat/prod + monitoring
+    │                                   + Airflow en parallèle (bloqué si un test ou un scan échoue, voir section 7)
+    ├── codeql.yml                  ← analyse statique C# / TypeScript
+    └── dependabot.yml              ← mises à jour NuGet, npm, Docker, Actions
 ```
 
-**Ce qui est réellement fonctionnel aujourd'hui** : SDK .NET 10.0.100 installé en local
-(`~/.dotnet`, conforme au pin `global.json`) et **build réel vérifié** — `dotnet build
-src/Collector.sln` passe avec 0 warning / 0 erreur sur les 12 projets (5 services + tests + 3 libs
-partagées). Les **tests unitaires purs** (sans dépendance externe) passent : 6/6
-`Chat.Api.Tests.PersonalDataFilterTests` + 4/4 `Moderation.Api.Tests.AutomatedModerationRulesTests`.
-Le frontend Next.js a été généré et **buildé avec succès** (`npm run build` + `npm run lint`
-passés), le chart Helm a été **validé** (`helm lint` + `helm template` sur les 3 environnements,
-zéro erreur).
+**Ce qui est réellement fonctionnel aujourd'hui** (état au 2026-10-20) : `dotnet build src/Collector.sln` passe
+avec 0 warning / 0 erreur. Les **22 tests unitaires .NET** passent (6 `PersonalDataFilter`, 10 Moderation dont
+`IFraudDetector`, 6 vérification de signature des webhooks Stripe) ainsi que les **73 tests Jest** (16 suites) ;
+`eslint` est propre. Tous les charts Helm (`helm/collector` ×3 environnements, `prometheus`, `kube-state-metrics`,
+`grafana`, `headlamp`) passent `helm lint` + `helm template`. L'interface de test de charge a été testée avec de
+faux `k6` / `kubectl`. Rien de cela n'a été exécuté sur le cluster ni contre le vrai Stripe, le vrai Airflow ou le
+vrai k6 : voir « Mise en service » en section 12.1.
 
 **Ce qui n'est PAS encore fait / bloqué dans cette session** : les tests d'**intégration**
 (Testcontainers → SQL Server éphémère) échouent avec `DockerUnavailableException` : le CLI `docker`
@@ -434,7 +483,7 @@ est présent sur l'hôte Windows (Docker Desktop) mais **l'intégration WSL n'es
 cette distro (`/mnt/wsl/docker-desktop` existe mais pas de socket exposé ici) — réglage à faire côté
 utilisateur dans *Docker Desktop → Settings → Resources → WSL Integration*, pas quelque chose
 d'automatisable depuis ce terminal. Tant que ce n'est pas activé : aucune image Docker
-construite/testée, et les suites `AuthEndpointsTests` (Identity), `ShopAndArticleEndpointsTests`
+construite/testée, et les suites d'intégration de tous les services (dont celles des commandes Stripe, du refresh token, du rate limiting et de la maintenance) restent validées uniquement par la CI. Suites historiques : `AuthEndpointsTests` (Identity), `ShopAndArticleEndpointsTests`
 (Catalog), `ConversationEndpointsTests` (Chat), `SubscriptionAndNotificationEndpointsTests`
 (Notification) et `DecisionsEndpointTests` (Moderation) restent non exécutables ici. Pas de
 documents/dossiers déplacés (les 3 PDF/XLSX consignes restent à la racine).
@@ -562,7 +611,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 - [ ] **Fournisseur d'envoi d'email** (notifications) : `LoggingEmailSender` (log uniquement) est en
       place dans Notification.Api — à remplacer par un vrai envoi SMTP (Mailjet, Brevo...) en
       implémentant `IEmailSender` sans toucher au reste du service.
-- [ ] **Outil de test de charge** : Siege ou JMeter (ou k6) — rien encore dans `load-tests/`.
+- [x] **Outil de test de charge** : **k6** retenu (scénario `load-tests/catalog-read.js`, seuils p95 < 500 ms / erreurs < 1 %, voir `load-tests/README.md`).
 - [ ] **Convention de commits** : Conventional Commits ou libre ? (la stratégie de branches
       elle-même est tranchée, voir section 4 — `develop`→dev, `uat`→uat, `master`→prod).
 - [ ] **Repo GitHub public ou privé** ? Impacte la visibilité pour le jury et l'accessibilité GHCR.
@@ -594,6 +643,106 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 
 ---
 
+## 12.1 Feuille de route : chantiers à ajouter (2026-10-19)
+
+> Cases cochées = implémenté dans le code (mais pas forcément encore déployé : un push sur
+> `develop`, `uat` ou `master` déclenche la CD). Les tests d'intégration (Testcontainers) de ces chantiers n'ont **pas pu
+> être exécutés localement** (Docker/WSL indisponible) : ils sont validés par la CI. Ordre = priorité vis-à-vis de la grille d'évaluation.
+
+### Étape 1 — Sécurité rapide (critère #8)
+- [x] **Rate limiting** sur `/auth/login` et `/auth/register` (`AddRateLimiter`, Identity.Api)
+- [x] **Refresh tokens** + JWT à durée de vie courte (`/auth/refresh`, `/auth/logout` = révocation)
+- [x] **Headers de sécurité** HTTP (HSTS, CSP, X-Content-Type-Options, Referrer-Policy) côté frontend
+- [x] **NetworkPolicies K8s** : chaque service ne joint que sa propre base SQL Server + RabbitMQ
+- [x] **Dependabot + CodeQL** (`.github/dependabot.yml`, workflow `codeql.yml`)
+- [x] SBOM (CycloneDX) publié en artefact du pipeline
+- [x] Tests d'autorisation : un acheteur ne modifie pas le prix d'un article d'un autre vendeur ; un non-admin ne crée pas de catégorie
+
+### Étape 2 — Observabilité (critère #5, #6)
+Contrainte : tout sur le même serveur → stack minimale, **un seul namespace `collector-monitoring`**
+qui surveille les 3 environnements. Pas d'ArgoCD (GitOps inutile : le pipeline fait déjà
+`helm upgrade`), pas de Loki (logs = Omnia), pas d'Alertmanager.
+- [x] `/metrics` (prometheus-net.AspNetCore) sur les 5 services .NET
+- [x] Prometheus (rétention 2 j, scrape 30 s) — ~200-300 Mo — `infra/prometheus` (chart dédié, config dans `files/prometheus.yml`)
+- [x] Grafana avec dashboards provisionnés (p95, taux d'erreur, req/s, CPU/RAM pods, files RabbitMQ) — ~100-150 Mo — `infra/grafana` (chart dédié, dashboards dans `dashboards/`, mot de passe admin dans Infisical `/monitoring`)
+- [x] `metrics-server` (fourni par k3s) pour l'HPA
+- [ ] Intégration des logs vers Omnia (mécanisme d'ingestion à préciser, voir questions ouvertes)
+- [x] **kube-state-metrics** (`infra/kube-state-metrics`), cAdvisor et `remote-write` k6 dans Prometheus -> dashboard Grafana « Scalabilité » (charge k6, CPU/request vs seuil HPA, réplicas demandés/prêts, pods par état, latence p95)
+- [x] **Headlamp** (`infra/headlamp`) : interface Kubernetes en lecture seule pour voir pods, HPA et événements en direct (jeton `view`)
+
+### Étape 3 — Scalabilité démontrable (critère #5)
+- [x] **HPA sur Catalog.Api** (1→3 pods, seuil CPU 70 %), `requests` CPU volontairement petit en **dev uniquement** (`values-dev.yaml`) pour que la démo ne sature pas le serveur
+- [x] **k6** dans `load-tests/` : scénarios `catalog-read` (`GET /articles`, lecture seule) et `browse` (catalogue + détail), seuils `p(95)<500ms` et `http_req_failed<1%`, lancés via l'interface `load-tests/ui`
+- [ ] Documenter dans le plan de remédiation que les limites dev sont réduites volontairement
+
+### Étape 4 — Paiement Stripe (fonctionnalité métier, critère #3)
+Flux d'achat complet dans Catalog.Api (aucun endpoint de commande n'existait avant).
+- [x] Entité `Order` (`Pending → Paid | Cancelled` ; l'expédition `Shipped` n'est pas modélisée) + `POST /orders`, `GET /orders/mine`, `GET /orders/{id}`
+- [x] **Stripe Checkout hébergé**, mode test (aucune donnée de carte ne transite chez nous) ; commission 5 %
+- [x] Webhook `/webhooks/stripe` avec **vérification de signature**, passe la commande à `Paid` et publie `OrderPaidEvent`
+- [x] Notification consomme `OrderPaidEvent` (acheteur + vendeur)
+- [x] Frontend : bouton « Acheter », page de retour succès/annulation
+- [x] **Stripe Connect Express** : onboarding vendeur (`/seller/payout-account`), commission 5 % réellement prélevée (destination charge), vendeur sans compte actif refusé
+- [x] Secrets Infisical : `Stripe__SecretKey`, `Stripe__WebhookSecret`
+
+### Étape 4 bis — Traitements récurrents (Airflow)
+- [x] Endpoints `/internal/*` protégés par clé `X-Maintenance-Key` (404 si `Maintenance__ApiKey` absente) : expiration des commandes `Pending`, purge des refresh tokens, rapport de commissions
+- [x] 3 DAGs Airflow (`infra/airflow/dags/collector_*.py`, convention `{app}_config.py` / `{app}_{dag}.py` des dépôts omnia-airflow et porty-airflow), une tâche par environnement
+- [x] CI/CD des DAGs vers le serveur Airflow existant (`infra/airflow/deploy-dags.sh`, job `deploy-airflow`, en parallèle de deploy-dev/uat/prod avec les mêmes conditions) : instance dev partagée par dev et uat, fichiers préfixés `collector_` à plat dans `dags/`
+- [x] Interface locale de test de charge multi-environnements avec vue pods/HPA (`load-tests/ui`)
+
+### Étape 5 — Extensibilité et finition
+- [x] `IFraudDetector` (implémentation par règles + point d'extension pour un outil externe, répond à « build vs buy non tranché »)
+- [ ] i18n FR/EN (`next-intl`) + audit accessibilité (axe-core / Lighthouse en CI)
+- [ ] Test d'acceptation de bout en bout : soumission d'article → modération → notification
+- [ ] Back-office admin : catégories, suppression article/vendeur, modération du chat
+- [ ] ADR (`docs/adr/`) dérivés du tableau de la section 4
+- [ ] Vidéo de secours de la démo (à faire en dernier)
+
+---
+
+### Limites connues / dette assumée (à citer dans le plan de remédiation, phase 3)
+- **Commission 5 % réellement prélevée** (Stripe Connect, mode test) : destination charge avec `application_fee_amount` = `Order.CommissionAmount` (figée et persistée à la commande) ; le net part sur le compte Express du vendeur, la commission reste sur le compte plateforme. Un vendeur sans compte Connect actif ne peut pas vendre (`POST /orders` → 409). Limite : pas de remboursement/litige géré (voir ci-dessous).
+- **Pas d'outbox transactionnelle** : si la publication de `OrderPaidEvent` échoue après le commit de la commande, l'évènement est perdu (le webhook rejoué est idempotent et ne le republie pas). Solution : table outbox + publisher en tâche de fond.
+- **Pas de remboursement** : deux paiements simultanés du même objet sont évités par le refus d'une 2ᵉ commande `Pending` (< 30 min), pas par un remboursement automatique.
+- **CSP avec `'unsafe-inline'`** sur `script-src` (hydratation Next.js) : passer à des nonces par requête.
+- **`EnsureCreated`** : les tables `Orders` (Catalog) et `RefreshTokens` (Identity) sont ajoutées aux bases existantes par un SQL idempotent (`CatalogSchemaUpgrades`, `IdentitySchemaUpgrades`), à remplacer par de vraies migrations EF Core.
+- **Prometheus sans persistance** (`emptyDir`, rétention 2 j) et sans alerting : choix assumé vu la RAM disponible.
+- **JWT d'accès non révocable** avant expiration (15 min) ; seul le refresh token est révocable (`/auth/logout`, détection de rejeu).
+
+### Mise en service (actions manuelles restantes)
+
+**DNS** (enregistrements A vers l'IP publique du serveur k3s ; ports 80/443 joignables pour Let's Encrypt) :
+
+| Enregistrement | Sert à |
+|---|---|
+| `dev.collector.romainmurier.com`, `uat.collector.romainmurier.com`, `collector.romainmurier.com` | application (3 environnements) |
+| `grafana.collector.romainmurier.com` | Grafana |
+| `headlamp.collector.romainmurier.com` | Headlamp |
+
+`airflow.romainmurier.com` et `dev.airflow.romainmurier.com` existent déjà (même VPS) et ne concernent pas le cluster.
+Un wildcard `*.collector.romainmurier.com` couvre les quatre sous-domaines, pas `collector.romainmurier.com` lui-même.
+
+**Secrets**
+1. **Stripe** (mode test, **Connect activé**, onboarding vendeur avec « données de test ») : un endpoint webhook **par environnement**
+   (`https://<domaine>/api/catalog/webhooks/stripe`, évènements `checkout.session.completed` et `checkout.session.expired`) donne
+   chacun son propre `whsec_...` ; renseigner `Stripe__SecretKey` et `Stripe__WebhookSecret` dans le scope Infisical de l'environnement.
+   Carte de test : `4242 4242 4242 4242`.
+2. **Grafana** : `GRAFANA_ADMIN_PASSWORD` dans Infisical (environnement `prod`, dossier `/monitoring`) avant le premier déploiement,
+   sinon le pod attend son Secret et le job échoue au bout de 5 min. Headlamp : jeton en lecture seule via
+   `kubectl -n collector-monitoring get secret headlamp-viewer-token -o jsonpath='{.data.token}' | base64 -d`.
+3. **Airflow** (instances existantes, aucune création) : secrets de repo GitHub `AIRFLOW_SSH_HOST`, `AIRFLOW_SSH_USER`,
+   `AIRFLOW_SSH_PASSWORD` (+ `AIRFLOW_SSH_KNOWN_HOSTS` recommandé) ; une clé `Maintenance__ApiKey` par environnement, saisie dans Infisical
+   **et** dans la Variable Airflow `collector_<env>_maintenance_key` (uat = scope Infisical `staging`). Détails : `infra/airflow/README.md`.
+
+**Vérifications**
+4. Le CNI de k3s applique bien les NetworkPolicy (`kubectl -n collector-dev get networkpolicy`, puis un pod `catalog` ne doit pas joindre `collector-identity-sql:1433`).
+5. Premier test de charge : installer k6 puis `node load-tests/ui/server.mjs` (voir `load-tests/README.md`). Si un panneau « k6 » du dashboard
+   Scalabilité reste vide, vérifier les noms de métriques exposés par `remote-write` ; si les panneaux CPU restent vides, vérifier le job `cadvisor`.
+6. Optionnel : `maintenance.allowedCidrs` (IP des serveurs Airflow) et `allowedCidrs` de Headlamp, qui demandent Traefik v3.
+
+---
+
 ## 13. Journal des échanges clés
 
 | Date | Décision/clarification |
@@ -614,6 +763,8 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 | 2026-10-16 | Session de mise en place infra en direct avec l'utilisateur sur un second serveur ("Omnia", maison, Tailscale, 31 Gi RAM/4 cores — bien plus confortable que le petit VPS OVH 11 Gi initialement prévu) : k3s installé, runner GitHub Actions self-hosted enregistré comme service systemd, cert-manager + `ClusterIssuer letsencrypt` (HTTP-01) créés, Infisical Secrets Operator installé via Helm. Clarification sur le critère grille #5 ("environnement managé") après lecture du texte exact de `Grille_eval_...xlsx` : la distinction porte sur l'orchestration (K3s/Helm/CI-CD) vs. "s'exécute en local sur l'hôte", pas sur l'hébergeur physique — héberger sur Omnia ne pénalise donc pas ce critère, contrairement à ce qui avait été dit par précaution dans l'échange précédent. Demande de fusionner `ci.yml`/`cd.yml` en un seul fichier avec tests bloquants pour le déploiement : remplacés par `pipeline.yml` unique, `build-and-push` et les 3 jobs de déploiement dépendent désormais explicitement (`needs: [backend, frontend]`) des jobs de qualité — un test en échec bloque tout déploiement. `cd.yml` passé en `runs-on: self-hosted` pour les 3 jobs de déploiement (le kubeconfig par défaut de k3s, avec son `127.0.0.1`, fonctionne tel quel puisque le job tourne localement sur Omnia). Reste en attente : vérification IP publique/CGNAT et port forwarding 80/443 chez l'utilisateur (pas faisable à distance), DNS, SonarQube. |
 | 2026-10-16 | `pipeline.yml` découpé en jobs séparés par type d'étape (`test-backend-unit`, `test-backend-integration`, `test-frontend`, `vulnerabilities`, `sonar`) à la demande de l'utilisateur. Runs CI successifs sur `develop` ont révélé 2 vrais bugs applicatifs (pas des soucis d'infra) : (1) `Collector.Testing` (librairie de fixtures partagées, pas un projet de tests) détecté par erreur par `dotnet test` faute de `IsTestProject=false`, plantait sur une résolution d'assembly Azure.Core au lieu d'être simplement ignoré. (2) Catalog.Api.Tests échouait en 500 sur la création d'articles — message d'exception ajouté aux tests (`AssertStatusAsync` avec corps de réponse) pour diagnostiquer : `System.ArgumentNullException` dans `Guid.Parse(principal.FindFirstValue(JwtRegisteredClaimNames.Sub))`, causé par le remapping par défaut de `JwtSecurityTokenHandler` du claim court "sub" vers l'URI long historique — `options.MapInboundClaims = false` manquant sur `AddJwtBearer`. Même pattern trouvé et corrigé dans Identity.Api (`/auth/become-seller`) et Chat.Api (`ChatHub`), jamais détecté avant faute de tests d'intégration exécutables (Docker indisponible jusqu'ici). Ajout de `.runsettings` (`MaxCpuCount=1`) pour éviter que les 5 projets de tests d'intégration lancent leurs conteneurs SQL Server simultanément sur un runner CI modeste. À la demande de l'utilisateur, le job `sonar` couvre désormais aussi le frontend (Jest `--coverage` → lcov, `sonar.javascript.lcov.reportPaths`), une seule analyse Sonar pour les deux au lieu d'un scan .NET isolé. |
 | 2026-10-16 | Utilisateur remarque que le job `vulnerabilities` avait une étape NuGet (`dotnet list package --vulnerable`) qui ne bloquait jamais rien — code de sortie 0 même en présence d'une vraie vulnérabilité, contrairement à `npm audit --audit-level=high` côté frontend. Trouvé au passage : `System.Security.Cryptography.Pkcs` 9.0.4 (transitif via `Microsoft.IdentityModel.*`, utilisé par Identity/Catalog/Chat/Notification pour la validation JWT) a 2 CVE réelles (High GHSA-846f-f764-76mx, Moderate GHSA-2fmv-rv2c-59x7) — corrigé par un pin repo-wide vers 9.0.21 dans `Directory.Build.props`. Politique de blocage précisée par l'utilisateur : erreur visible systématiquement, mais blocage uniquement si la gravité le justifie. Les codes d'audit NuGet exposant déjà la gravité exacte (NU1901 Low / NU1902 Moderate / NU1903 High / NU1904 Critical), `dotnet restore` du job `vulnerabilities` passe désormais `-p:WarningsAsErrors=NU1903%3BNU1904` (le `;` doit être encodé `%3B`, la CLI dotnet le traite sinon comme séparateur entre propriétés `-p:`) — Low/Moderate restent des warnings visibles non bloquants, High/Critical font échouer le job. Comportement vérifié dans les deux sens (repin temporaire vers 9.0.4 → restore échoue bien, code de sortie 1 ; repassé à 9.0.21 → 0 warning). |
+| 2026-10-19 | Feuille de route (section 12.1) puis implémentation des étapes 1 à 4 + `IFraudDetector`, sans commit ni push (la CD se déclenche au push). **Sécurité** : rate limiting `/auth/*` (fenêtre fixe par IP, `X-Forwarded-For` derrière Traefik), refresh tokens à rotation + détection de rejeu (hash SHA-256 en base) et JWT d'accès ramené à 15 min, headers de sécurité + CSP prod côté Next.js, NetworkPolicies Helm (default-deny, SQL joignable uniquement par son service, RabbitMQ AMQP uniquement par les services, solver cert-manager autorisé), Dependabot, CodeQL, SBOM CycloneDX. Au passage, trou d'autorisation corrigé dans Catalog : n'importe quel utilisateur authentifié pouvait publier dans la boutique d'un autre et modifier le prix de son article (`403` désormais, 2 tests). **Observabilité** : `/metrics` (prometheus-net) sur port dédié 9090 non routé par Traefik, charts `infra/prometheus` et `infra/grafana` (Prometheus rétention 2 j + Grafana avec dashboard provisionné, ~300-500 Mo au total, pas d'ArgoCD/Loki/Alertmanager), job `deploy-monitoring`. **Scalabilité** : HPA Catalog (dev uniquement, `requests` CPU 50m pour une démo visible sans saturer le serveur) + scénario k6 `load-tests/catalog-read.js`. **Stripe** : `Order` + Checkout hébergé (mode test) derrière `IPaymentGateway`, webhook à signature vérifiée et idempotent, `OrderPaidEvent` consommé par Notification, pages `/commandes`. Choix : Checkout hébergé plutôt qu'Elements (aucune donnée de carte chez nous). Les 22 tests unitaires .NET (dont 6 sur la vraie vérification de signature Stripe) passent, ainsi que les 73 tests Jest (16 suites) ; les tests d'intégration ajoutés ne sont pas exécutables en local (Docker/WSL) et restent à valider en CI. |
+| 2026-10-20 | Suite de la feuille de route. **Commission réellement prélevée** (exigence utilisateur, même en démo) : passage de Stripe Checkout simple à **Stripe Connect Express** (destination charge + `application_fee_amount`), commission figée dans `Order`, onboarding vendeur, vendeur sans compte actif refusé. **Airflow** : l'utilisateur a déjà deux instances (`/opt/airflow-dev`, `/opt/airflow-prod` sur le même VPS) alimentées par les dépôts `omnia-airflow` / `porty-airflow` : DAGs refaits selon leur convention (`collector_config.py`, un fichier par DAG, id = nom de fichier, fichiers à plat préfixés), dev **et** uat sur l'instance dev par `expand`, endpoints `/internal/*` protégés par clé, déploiement par `deploy-dags.sh` (n'écrit et ne supprime que `collector_*`). **Erreur corrigée** : un premier constat (« les workflows omnia/porty effacent des fichiers d'autres projets ») venait de clones locaux périmés — les dépôts distants étaient déjà corrigés ; rien n'a été poussé dans ces dépôts. **Monitoring** : charts séparés `infra/prometheus`, `infra/grafana`, `infra/kube-state-metrics`, `infra/headlamp`, mot de passe Grafana dans Infisical, redémarrage automatique des pods sur changement de config ; déploiements monitoring et Airflow **en parallèle** de deploy-dev/uat/prod avec les mêmes conditions. **Scalabilité visible** : dashboard Grafana « Scalabilité » (charge k6, CPU rapporté au request vs seuil HPA, réplicas demandés/prêts, pods par état), Headlamp en lecture seule, interface locale de test de charge multi-environnements avec envoi des métriques k6 à Prometheus. Routes Traefik (HTTPS + redirection HTTP) pour Grafana et Headlamp. Rien n'est commité ni poussé dans ce dépôt ; aucun de ces éléments n'a été exécuté sur le cluster. |
 
 ---
 

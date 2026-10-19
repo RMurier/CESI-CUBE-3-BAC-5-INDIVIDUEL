@@ -86,4 +86,29 @@ describe("AuthProvider", () => {
     fetchMock.mockResolvedValueOnce({ ok: false });
     await expect(r.current.becomeSeller()).rejects.toThrow("devenir vendeur");
   });
+
+  it("getToken rafraîchit un jeton expiré avec le refresh token et applique la rotation", async () => {
+    const fresh = makeToken({ sub: "u1", email: "a@b.c", display_name: "Alice", exp: Math.floor(Date.now() / 1000) + 900 });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: token, refreshToken: "r1", roles: [] }) });
+    const r = await mount();
+    await act(() => r.current.login("a", "b"));
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: fresh, refreshToken: "r2", roles: ["Buyer"] }) });
+    let result = "";
+    await act(async () => {
+      result = await r.current.getToken();
+    });
+    expect(result).toBe(fresh);
+    expect(r.current.auth?.refreshToken).toBe("r2");
+  });
+
+  it("getToken: refresh refusé = déconnexion", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ accessToken: token, refreshToken: "r1", roles: [] }) });
+    const r = await mount();
+    await act(() => r.current.login("a", "b"));
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
+    await act(async () => {
+      await expect(r.current.getToken()).rejects.toThrow("Session expirée");
+    });
+    expect(r.current.auth).toBeNull();
+  });
 });

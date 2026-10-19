@@ -1,0 +1,15 @@
+image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+
+# Seuls ces namespaces et ces ressources sont observés (limite la mémoire et la surface d'accès).
+watchedNamespaces:
+  - collector-dev
+  - collector-uat
+  - collector-prod
+resources: [pods, deployments, replicasets, horizontalpodautoscalers]
+
+resourcesRequests:
+  requests: { cpu: 20m, memory: 48Mi }
+  limits: { cpu: 200m, memory: 128Mi }
+
+# Seul pod autorisé à lire les métriques.
+allowedClientApp: prometheus

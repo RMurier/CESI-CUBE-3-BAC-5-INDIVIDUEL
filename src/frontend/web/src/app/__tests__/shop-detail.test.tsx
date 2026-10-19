@@ -63,7 +63,7 @@ describe("ShopDetailClient", () => {
   });
 
   it("le propriétaire soumet un article, puis voit les erreurs", async () => {
-    (useAuth as jest.Mock).mockReturnValue({ auth: { token: "t", userId: "u1" } });
+    (useAuth as jest.Mock).mockReturnValue({ auth: { token: "t", userId: "u1" }, getToken: async () => "t" });
     (getShop as jest.Mock).mockResolvedValue(shop);
     (createArticle as jest.Mock).mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("Refusé")).mockRejectedValueOnce("x");
     render(<ShopDetailClient shopId="s1" />);

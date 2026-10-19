@@ -11,5 +11,6 @@ public sealed class JwtOptions
     public required string SigningKey { get; set; }
     public string Issuer { get; set; } = "collector-identity";
     public string Audience { get; set; } = "collector-api";
-    public int ExpiryMinutes { get; set; } = 60;
+    public int ExpiryMinutes { get; set; } = 15;
+    public int RefreshExpiryDays { get; set; } = 7;
 }

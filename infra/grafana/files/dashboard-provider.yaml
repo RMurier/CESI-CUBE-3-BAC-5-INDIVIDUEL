@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: collector
+    type: file
+    # Les dashboards du dépôt ne sont pas modifiables depuis l'UI : la source de vérité reste Git.
+    allowUiUpdates: false
+    options: { path: /var/lib/grafana/dashboards }

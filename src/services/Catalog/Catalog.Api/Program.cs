@@ -1,6 +1,9 @@
+using Prometheus;
 using Catalog.Api.Contracts;
 using System.Security.Claims;
 using Catalog.Api.Domain;
+using Catalog.Api.Endpoints;
+using Catalog.Api.Payments;
 using Catalog.Api.Infrastructure;
 using Catalog.Api.Messaging;
 using Collector.Contracts.Events;
@@ -12,10 +15,28 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
+// Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
+var metricsPort = builder.Configuration.GetValue<int?>("Metrics:Port");
+if (metricsPort is not null)
+{
+    builder.Services.AddMetricServer(options => options.Port = (ushort)metricsPort.Value);
+}
+
 builder.Services.AddDbContext<CatalogDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddCollectorEventBus(builder.Configuration);
+
+builder.Services.Configure<StripeOptions>(builder.Configuration.GetSection(StripeOptions.SectionName));
+if (string.IsNullOrWhiteSpace(builder.Configuration["Stripe:SecretKey"]))
+{
+    builder.Services.AddSingleton<IPaymentGateway, DisabledPaymentGateway>();
+}
+else
+{
+    builder.Services.AddSingleton<IPaymentGateway, StripePaymentGateway>();
+}
 builder.Services.AddHostedService<ModerationResultConsumer>();
 
 var jwtSigningKey = builder.Configuration["Jwt:SigningKey"]
@@ -60,9 +81,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    await db.EnsureCreatedAndUpToDateAsync();
 }
 
+app.UseHttpMetrics();
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -90,11 +112,13 @@ app.MapGet("/shops/{id:guid}", async (Guid id, CatalogDbContext db) =>
 app.MapPost("/shops/{shopId:guid}/articles", async (
     Guid shopId,
     CreateArticleRequest request,
+    ClaimsPrincipal principal,
     CatalogDbContext db,
     IEventBus eventBus) =>
 {
     var shop = await db.Shops.FindAsync(shopId);
     if (shop is null) return Results.NotFound();
+    if (shop.SellerId != CurrentUserId(principal)) return Results.Forbid();
 
     var article = new Article
     {
@@ -123,11 +147,15 @@ app.MapGet("/articles/{id:guid}", async (Guid id, CatalogDbContext db) =>
 app.MapPut("/articles/{id:guid}/price", async (
     Guid id,
     UpdatePriceRequest request,
+    ClaimsPrincipal principal,
     CatalogDbContext db,
     IEventBus eventBus) =>
 {
     var article = await db.Articles.FindAsync(id);
     if (article is null) return Results.NotFound();
+
+    var owner = await db.Shops.Where(sh => sh.Id == article.ShopId).Select(sh => sh.SellerId).SingleAsync();
+    if (owner != CurrentUserId(principal)) return Results.Forbid();
 
     var previousPrice = article.Price;
     article.Price = request.NewPrice;
@@ -138,7 +166,14 @@ app.MapPut("/articles/{id:guid}/price", async (
     return Results.Ok(article);
 }).RequireAuthorization();
 
+app.MapOrderEndpoints();
+app.MapPayoutEndpoints();
+app.MapMaintenanceEndpoints();
+
 await app.RunAsync();
+
+static Guid CurrentUserId(ClaimsPrincipal principal) =>
+    Guid.Parse(principal.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)!);
 
 
 public partial class Program;

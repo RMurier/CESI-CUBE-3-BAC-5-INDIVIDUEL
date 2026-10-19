@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test de charge</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --text: #1c1917; --muted: #78716c; --border: #e7e5e4;
+    --accent: #2563eb; --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --new: #dbeafe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151413; --surface: #1f1d1b; --text: #f5f5f4; --muted: #a8a29e; --border: #34312e;
+      --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --new: #1e3a5f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 20px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=text], input[type=number], select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; min-width: 110px;
+  }
+  .envs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 14px; }
+  .env { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  .env input { margin-top: 4px; }
+  .env small { display: block; color: var(--muted); }
+  .env.danger { border-color: var(--bad); }
+  button { font: inherit; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.stop { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+  .error { color: var(--bad); font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+  .badge.running { color: var(--accent); border-color: var(--accent); }
+  .badge.passed { color: var(--ok); border-color: var(--ok); }
+  .badge.thresholds-failed { color: var(--warn); border-color: var(--warn); }
+  .badge.error { color: var(--bad); border-color: var(--bad); }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+  pre.log { margin: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace; height: 120px; overflow: auto; white-space: pre-wrap; }
+  dl.summary { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 10px 0 0; font-size: 13px; }
+  dl.summary dt { color: var(--muted); }
+  dl.summary dd { margin: 0; font-variant-numeric: tabular-nums; }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  tr.new td { background: var(--new); }
+  tr.terminating td { color: var(--muted); text-decoration: line-through; }
+  .hpa { display: flex; gap: 10px; align-items: center; font-size: 13px; margin-bottom: 8px; }
+  .bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .phase-Running { color: var(--ok); } .phase-Pending, .phase-ContainerCreating { color: var(--warn); }
+  .phase-CrashLoopBackOff, .phase-Failed, .phase-ErrImagePull { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Test de charge — Collector.shop</h1>
+    <p class="muted" id="links"></p>
+    <p class="muted">k6 en parallèle sur un ou plusieurs environnements. Les environnements partagent le même cluster : lancer plusieurs environnements à la fois les fait concurrencer les mêmes ressources.</p>
+  </header>
+
+  <section class="card">
+    <h2>Configuration</h2>
+    <div class="envs" id="envs"></div>
+    <div class="presets">
+      Préréglages :
+      <button type="button" data-preset="10,30s,1m">Léger</button>
+      <button type="button" data-preset="40,1m,2m">Démo autoscaling</button>
+      <button type="button" data-preset="100,2m,3m">Fort</button>
+    </div>
+    <div class="row">
+      <label class="field">Scénario<select id="scenario"></select></label>
+      <label class="field">Utilisateurs virtuels (pic)<input type="number" id="vus" min="1" value="40"></label>
+      <label class="field">Montée en charge<input type="text" id="ramp" value="1m" size="6"></label>
+      <label class="field">Palier<input type="text" id="hold" value="2m" size="6"></label>
+      <button class="primary" id="start">Lancer</button>
+      <button class="stop" id="stop" disabled>Arrêter</button>
+    </div>
+    <label class="muted" style="display:block;margin-top:12px"><input type="checkbox" id="send-metrics" checked>
+      Envoyer les métriques k6 à Prometheus (graphique « Scalabilité » dans Grafana ; nécessite kubectl)</label>
+    <div id="confirm-row" class="row" hidden style="margin-top:12px">
+      <label class="field">Production : tapez « prod » pour confirmer<input type="text" id="confirm-prod" autocomplete="off"></label>
+    </div>
+    <div class="error" id="error" role="alert"></div>
+  </section>
+
+  <section>
+    <h2>Résultats</h2>
+    <div class="grid" id="results"><p class="muted">Aucun test lancé.</p></div>
+  </section>
+
+  <section class="card">
+    <div class="head">
+      <h2 style="margin:0">Pods &amp; autoscaling (kubectl)</h2>
+      <label class="muted"><input type="checkbox" id="show-infra"> afficher SQL Server / RabbitMQ</label>
+    </div>
+    <div class="grid" id="pods"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const child of children) node.append(child);
+  return node;
+};
+
+let config;
+let runId = null;
+let source = null;
+const cards = {};            // env -> { badge, log, summary, dashboard, timer }
+const knownPods = {};        // env -> Map(name -> firstSeenMs) ; null tant que le 1er relevé n'est pas fait
+const selectedEnvs = () => [...document.querySelectorAll("#envs input:checked")].map((i) => i.value);
+
+async function init() {
+  config = await (await fetch("/api/config")).json();
+  $("links").replaceChildren("Pendant le test : ",
+    el("a", { href: config.links.grafana, target: "_blank", rel: "noopener" }, "dashboard Grafana « Scalabilité »"), " · ",
+    el("a", { href: config.links.headlamp, target: "_blank", rel: "noopener" }, "Headlamp (pods & événements, jeton en lecture seule)"));
+  for (const [name, env] of Object.entries(config.environments)) {
+    const input = el("input", { type: "checkbox", value: name, checked: name === "dev" });
+    input.addEventListener("change", onEnvChange);
+    $("envs").append(el("label", { className: "env" + (env.requireConfirm ? " danger" : "") }, input,
+      el("span", {}, el("strong", {}, name + (env.requireConfirm ? " (production)" : "")),
+        el("small", {}, env.baseUrl), el("small", {}, `max ${env.maxVus} utilisateurs virtuels`))));
+  }
+  for (const [key, label] of Object.entries(config.scenarios)) $("scenario").append(el("option", { value: key }, label));
+  document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => {
+    const [vus, ramp, hold] = b.dataset.preset.split(",");
+    $("vus").value = vus; $("ramp").value = ramp; $("hold").value = hold;
+  }));
+  $("start").addEventListener("click", start);
+  $("stop").addEventListener("click", stop);
+  $("show-infra").addEventListener("change", pollPods);
+  onEnvChange();
+  pollPods();
+  setInterval(pollPods, 2000);
+}
+
+function onEnvChange() {
+  $("confirm-row").hidden = !selectedEnvs().some((e) => config.environments[e].requireConfirm);
+  pollPods();
+}
+
+async function start() {
+  $("error").textContent = "";
+  const envs = selectedEnvs();
+  const body = {
+    envs, scenario: $("scenario").value, vus: Number($("vus").value), ramp: $("ramp").value.trim(), hold: $("hold").value.trim(),
+    sendMetrics: $("send-metrics").checked,
+    confirm: { prod: $("confirm-prod").value.trim() },
+  };
+  const res = await fetch("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { $("error").textContent = data.message; return; }
+  runId = data.id;
+  buildCards(envs);
+  $("start").disabled = true; $("stop").disabled = false;
+  source = new EventSource(`/api/runs/${runId}/events`);
+  source.onmessage = (e) => onEvent(JSON.parse(e.data));
+}
+
+async function stop() {
+  if (runId) await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
+  $("stop").disabled = true;
+}
+
+function buildCards(envs) {
+  $("results").replaceChildren();
+  for (const env of envs) {
+    const c = { badge: el("span", { className: "badge" }, "démarrage…"), log: el("pre", { className: "log" }),
+      summary: el("div"), dashboard: el("span", { className: "muted" }), started: Date.now() };
+    cards[env] = c;
+    $("results").append(el("div", { className: "card" },
+      el("div", { className: "head" }, el("strong", {}, env), c.badge), c.dashboard, c.log, c.summary));
+  }
+}
+
+const STATUS_LABEL = { running: "en cours", passed: "réussi", "thresholds-failed": "seuils dépassés", error: "erreur", stopped: "arrêté" };
+const fmt = (n, d = 0) => (n == null ? "—" : Number(n).toLocaleString("fr-FR", { maximumFractionDigits: d }));
+
+function onEvent(ev) {
+  if (ev.type === "notice") { $("error").textContent = ev.message; return; }
+  if (ev.type === "done") { $("start").disabled = false; $("stop").disabled = true; source.close(); return; }
+  const c = cards[ev.env];
+  if (!c) return;
+  if (ev.type === "log") {
+    c.log.append(ev.line + "\n");
+    while (c.log.childNodes.length > 300) c.log.firstChild.remove();
+    c.log.scrollTop = c.log.scrollHeight;
+  } else if (ev.type === "status") {
+    c.badge.className = "badge " + ev.status;
+    c.badge.textContent = STATUS_LABEL[ev.status] ?? ev.status;
+    if (ev.dashboardUrl) c.dashboard.replaceChildren("Graphiques en direct : ", el("a", { href: ev.dashboardUrl, target: "_blank", rel: "noopener" }, ev.dashboardUrl));
+    if (ev.message) c.log.append(ev.message + "\n");
+    if (ev.summary) {
+      const s = ev.summary;
+      c.summary.replaceChildren(el("dl", { className: "summary" },
+        el("dt", {}, "Requêtes"), el("dd", {}, fmt(s.requests)),
+        el("dt", {}, "Débit"), el("dd", {}, fmt(s.rps, 1) + " req/s"),
+        el("dt", {}, "Latence moy."), el("dd", {}, fmt(s.avgMs) + " ms"),
+        el("dt", {}, "Latence p95"), el("dd", {}, fmt(s.p95Ms) + " ms"),
+        el("dt", {}, "Latence max"), el("dd", {}, fmt(s.maxMs) + " ms"),
+        el("dt", {}, "Erreurs"), el("dd", {}, fmt((s.failedRate ?? 0) * 100, 2) + " %")));
+    }
+  }
+}
+
+async function pollPods() {
+  const envs = selectedEnvs();
+  const root = $("pods");
+  for (const child of [...root.children]) if (!envs.includes(child.dataset.env)) child.remove();
+  await Promise.all(envs.map(async (env) => {
+    let panel = root.querySelector(`[data-env="${env}"]`);
+    if (!panel) { panel = el("div", { className: "card" }); panel.dataset.env = env; root.append(panel); }
+    let data;
+    try { data = await (await fetch(`/api/pods?env=${env}`)).json(); } catch { data = { available: false, message: "Serveur local injoignable." }; }
+    renderPods(panel, env, data);
+  }));
+}
+
+function renderPods(panel, env, data) {
+  const title = el("div", { className: "head" }, el("strong", {}, `${env} — ${config.environments[env].namespace}`));
+  if (!data.available) { panel.replaceChildren(title, el("p", { className: "muted" }, data.message)); return; }
+
+  const now = Date.now();
+  const first = !knownPods[env];
+  knownPods[env] ??= new Map();
+  const seen = knownPods[env];
+  const showInfra = $("show-infra").checked;
+  const pods = data.pods.filter((p) => showInfra || !/-sql|rabbitmq/.test(p.name)).sort((a, b) => a.service.localeCompare(b.service) || a.ageSeconds - b.ageSeconds);
+  for (const p of data.pods) if (!seen.has(p.name)) seen.set(p.name, first ? 0 : now);
+
+  const hpaBlocks = data.hpa.map((h) => el("div", { className: "hpa" },
+    el("span", {}, `HPA ${h.name.replace("collector-", "")} : ${h.current} → ${h.desired} (min ${h.min}, max ${h.max})`),
+    el("div", { className: "bar" }, Object.assign(el("span"), { style: `width:${Math.min(100, (h.current / h.max) * 100)}%` })),
+    el("span", { className: "muted" }, h.cpuPercent == null ? "CPU —" : `CPU ${h.cpuPercent} %`)));
+
+  const rows = pods.map((p) => {
+    const isNew = seen.get(p.name) && now - seen.get(p.name) < 30000;
+    const tr = el("tr", { className: (isNew ? "new " : "") + (p.phase === "Terminating" ? "terminating" : "") },
+      el("td", {}, p.service), el("td", {}, p.name + (isNew ? "  ● nouveau" : "")),
+      el("td", { className: "phase-" + p.phase }, p.phase), el("td", {}, p.ready), el("td", {}, String(p.restarts)),
+      el("td", {}, p.ageSeconds < 120 ? `${p.ageSeconds} s` : `${Math.round(p.ageSeconds / 60)} min`));
+    return tr;
+  });
+  const table = el("table", {}, el("thead", {}, el("tr", {}, ...["service", "pod", "état", "prêt", "redémarrages", "âge"].map((h) => el("th", {}, h)))), el("tbody", {}, ...rows));
+  panel.replaceChildren(title, ...hpaBlocks, table);
+}
+
+init();
+</script>
+</body>
+</html>

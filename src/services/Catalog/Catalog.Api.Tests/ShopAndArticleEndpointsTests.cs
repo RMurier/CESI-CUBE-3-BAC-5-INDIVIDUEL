@@ -91,4 +91,40 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    [Fact]
+    public async Task A_seller_cannot_change_the_price_of_another_sellers_article()
+    {
+        var shop = await (await _client.PostAsJsonAsync("/shops", new { Name = "Boutique d'Alice" })).Content.ReadFromJsonAsync<Shop>();
+        var article = await (await _client.PostAsJsonAsync($"/shops/{shop!.Id}/articles", new
+        {
+            Title = "Baskets collector",
+            Description = "Paire en édition limitée, jamais portée.",
+            Price = 200m,
+            ShippingCost = 8m,
+        })).Content.ReadFromJsonAsync<Article>();
+
+        var intruder = CreateAuthenticatedClient(factory, out _);
+        var response = await intruder.PutAsJsonAsync($"/articles/{article!.Id}/price", new { NewPrice = 1m });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.DoesNotContain(factory.EventBus.PublishedOf<PriceChangedEvent>(), e => e.ArticleId == article.Id);
+    }
+
+    [Fact]
+    public async Task A_seller_cannot_publish_an_article_in_another_sellers_shop()
+    {
+        var shop = await (await _client.PostAsJsonAsync("/shops", new { Name = "Boutique protégée" })).Content.ReadFromJsonAsync<Shop>();
+
+        var intruder = CreateAuthenticatedClient(factory, out _);
+        var response = await intruder.PostAsJsonAsync($"/shops/{shop!.Id}/articles", new
+        {
+            Title = "Faux article",
+            Description = "Tentative d'injection dans la boutique d'un autre.",
+            Price = 5m,
+            ShippingCost = 1m,
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
 }

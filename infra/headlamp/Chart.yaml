@@ -1,0 +1,8 @@
+apiVersion: v2
+name: collector-headlamp
+description: >
+  Headlamp : interface web Kubernetes en LECTURE SEULE pour voir pods, HPA et événements en direct pendant les
+  tests de charge. Déployé par le pipeline à chaque push, dans le namespace collector-monitoring.
+type: application
+version: 0.1.0
+appVersion: "0.26.0"

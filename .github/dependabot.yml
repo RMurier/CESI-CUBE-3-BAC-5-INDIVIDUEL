@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /src
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    target-branch: develop
+    groups:
+      microsoft:
+        patterns: ["Microsoft.*", "System.*"]
+  - package-ecosystem: npm
+    directory: /src/frontend/web
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    target-branch: develop
+  - package-ecosystem: docker
+    directory: /src/services/Catalog/Catalog.Api
+    schedule: { interval: weekly }
+    target-branch: develop
+  - package-ecosystem: docker
+    directory: /src/frontend/web
+    schedule: { interval: weekly }
+    target-branch: develop
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    target-branch: develop

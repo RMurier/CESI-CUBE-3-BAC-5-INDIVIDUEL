@@ -1,0 +1,8 @@
+apiVersion: v2
+name: collector-kube-state-metrics
+description: >
+  kube-state-metrics pour le namespace collector-monitoring : expose l'état des objets Kubernetes de l'application
+  (réplicas, HPA, phase et redémarrages des pods) à Prometheus. Déployé par le pipeline à chaque push.
+type: application
+version: 0.1.0
+appVersion: "2.13.0"

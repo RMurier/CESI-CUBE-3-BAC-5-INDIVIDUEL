@@ -21,6 +21,7 @@ services:
     replicas: 1
     db: true
     dbName: identity
+    maintenance: true   # expose /internal/* (appelé par Airflow, protégé par X-Maintenance-Key)
     ingress:
       enabled: true
       pathPrefix: /api/identity
@@ -35,6 +36,7 @@ services:
     replicas: 1
     db: true
     dbName: catalog
+    maintenance: true   # expose /internal/* (appelé par Airflow, protégé par X-Maintenance-Key)
     ingress:
       enabled: true
       pathPrefix: /api/catalog
@@ -111,6 +113,23 @@ sqlServer:
   resources:
     requests: { cpu: 250m, memory: 2Gi }
     limits: { cpu: "1", memory: 2Gi }
+
+# Restriction réseau des routes /internal/* (appelées par Airflow). Vide = pas de restriction réseau
+# (la clé X-Maintenance-Key reste exigée). Renseigner l'IP publique du serveur Airflow en CIDR, ex :
+#   maintenance: { allowedCidrs: ["203.0.113.10/32"] }
+# Nécessite Traefik v3 (middleware ipAllowList) et que Traefik voie la vraie IP source du client.
+maintenance:
+  allowedCidrs: []
+
+# Exposition des métriques Prometheus (/metrics sur un port dédié, non routé par Traefik).
+metrics:
+  enabled: true
+  port: 9090
+
+# Isolation réseau (ingress). Désactivable si le CNI du cluster n'applique pas les NetworkPolicy.
+networkPolicy:
+  enabled: true
+  monitoringNamespace: collector-monitoring   # autorisé à scraper /metrics des services
 
 infisical:
   enabled: true

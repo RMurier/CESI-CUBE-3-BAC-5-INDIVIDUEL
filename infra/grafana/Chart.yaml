@@ -1,0 +1,8 @@
+apiVersion: v2
+name: collector-grafana
+description: >
+  Grafana de Collector.shop : dashboards provisionnés depuis le dépôt (dashboards/), source de données
+  Prometheus, mot de passe admin géré dans Infisical. Déployé par le pipeline à chaque push sur develop.
+type: application
+version: 0.1.0
+appVersion: "11.3.1"

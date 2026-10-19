@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Release.Namespace }}
+---
+# Lecture seule des seules ressources observées.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: collector-kube-state-metrics
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: collector-kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collector-kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: { app.kubernetes.io/name: kube-state-metrics, app.kubernetes.io/part-of: collector-monitoring }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: kube-state-metrics }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: kube-state-metrics, app.kubernetes.io/part-of: collector-monitoring }
+    spec:
+      serviceAccountName: kube-state-metrics
+      securityContext: { runAsNonRoot: true, runAsUser: 65534 }
+      containers:
+        - name: kube-state-metrics
+          image: {{ .Values.image }}
+          args:
+            - --port=8080
+            - --namespaces={{ join "," .Values.watchedNamespaces }}
+            - --resources={{ join "," .Values.resources }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          securityContext: { readOnlyRootFilesystem: true, allowPrivilegeEscalation: false }
+          resources:
+            {{- toYaml .Values.resourcesRequests | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector: { app.kubernetes.io/name: kube-state-metrics }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kube-state-metrics-from-prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: kube-state-metrics }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: {{ .Values.allowedClientApp }} }
+      ports: [{ protocol: TCP, port: 8080 }]

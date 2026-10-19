@@ -1,0 +1,8 @@
+apiVersion: v2
+name: collector-prometheus
+description: >
+  Prometheus de Collector.shop : une seule instance, dans le namespace collector-monitoring, qui scrape
+  les pods annotés prometheus.io/scrape des 3 environnements. Déployé par le pipeline à chaque push sur develop.
+type: application
+version: 0.1.0
+appVersion: "2.55.1"

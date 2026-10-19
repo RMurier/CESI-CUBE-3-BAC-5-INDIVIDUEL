@@ -370,6 +370,19 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
 
+      - name: Générer le SBOM (CycloneDX)
+        run: |
+          trivy image --format cyclonedx \
+            --output sbom-${{ matrix.service }}.cdx.json \
+            ${{ steps.tag.outputs.registry }}/collector-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+
+      - name: Publier le SBOM en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.cdx.json
+          retention-days: 30
+
   deploy-dev:
     name: Déploiement dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -435,3 +448,88 @@ jobs:
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
             --wait --timeout 5m
+
+  # Les deux jobs ci-dessous tournent EN PARALLÈLE des deploy-dev / deploy-uat / deploy-prod : mêmes `needs`
+  # (build-and-push, donc tous les tests et scans verts), mêmes branches et mêmes environnements GitHub
+  # (develop -> dev, uat -> uat, master -> production : l'approbation d'un reviewer est donc exigée sur
+  # master, et elle se valide en une fois avec celle de deploy-prod).
+
+  deploy-monitoring:
+    name: Déploiement monitoring (Prometheus, Grafana, kube-state-metrics, Headlamp)
+    # Une seule stack pour les 3 environnements (RAM limitée), redéployée à chaque push comme l'application :
+    # modifier infra/prometheus ou infra/grafana (config, dashboards) puis pousser suffit, les pods
+    # redémarrent seuls quand leur config change (annotation checksum).
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
+    needs: build-and-push
+    runs-on: self-hosted
+    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    # Un push sur develop et un sur master rapprochés lanceraient deux `helm upgrade` simultanés sur la
+    # même release (« another operation is in progress ») : on les met en file.
+    concurrency:
+      group: deploy-monitoring
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Valider les charts
+        run: |
+          helm lint infra/prometheus
+          helm lint infra/kube-state-metrics
+          helm lint infra/headlamp
+          helm lint infra/grafana --set infisical.machineIdentity.clientId=ci --set infisical.machineIdentity.clientSecret=ci
+
+      - name: Déployer Prometheus (namespace collector-monitoring)
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > kubeconfig.yaml
+          helm upgrade --install collector-prometheus infra/prometheus \
+            --namespace collector-monitoring --create-namespace \
+            --kubeconfig kubeconfig.yaml \
+            --wait --timeout 5m
+
+      - name: Déployer kube-state-metrics (namespace collector-monitoring)
+        run: |
+          helm upgrade --install collector-kube-state-metrics infra/kube-state-metrics \
+            --namespace collector-monitoring \
+            --kubeconfig kubeconfig.yaml \
+            --wait --timeout 5m
+
+      - name: Déployer Headlamp (namespace collector-monitoring)
+        run: |
+          helm upgrade --install collector-headlamp infra/headlamp \
+            --namespace collector-monitoring \
+            --kubeconfig kubeconfig.yaml \
+            --wait --timeout 5m
+
+      - name: Déployer Grafana (namespace collector-monitoring)
+        run: |
+          helm upgrade --install collector-grafana infra/grafana \
+            --namespace collector-monitoring \
+            --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
+            --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
+            --kubeconfig kubeconfig.yaml \
+            --wait --timeout 5m
+
+  deploy-airflow:
+    name: Déploiement DAGs Airflow
+    # develop -> instance dev, uat -> instance dev aussi (dev et uat partagent la même instance Airflow,
+    # infra/airflow/environments/dev.json), master -> instance prod. Le dernier push sur develop/uat l'emporte
+    # sur l'instance dev partagée.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    concurrency:
+      group: deploy-airflow-${{ github.ref_name == 'master' && 'prod' || 'dev' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer sshpass
+        run: sudo apt-get install -y sshpass
+      - name: Déployer les DAGs (instance ${{ github.ref_name == 'master' && 'prod' || 'dev' }})
+        env:
+          AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+          AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+          AIRFLOW_SSH_PASSWORD: ${{ secrets.AIRFLOW_SSH_PASSWORD }}
+          AIRFLOW_SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: infra/airflow/deploy-dags.sh ${{ github.ref_name == 'master' && 'prod' || 'dev' }}

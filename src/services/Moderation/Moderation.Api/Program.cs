@@ -1,14 +1,25 @@
+using Prometheus;
 using Collector.Messaging;
 using Microsoft.EntityFrameworkCore;
+using Moderation.Api.Domain;
 using Moderation.Api.Infrastructure;
 using Moderation.Api.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
+// Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
+var metricsPort = builder.Configuration.GetValue<int?>("Metrics:Port");
+if (metricsPort is not null)
+{
+    builder.Services.AddMetricServer(options => options.Port = (ushort)metricsPort.Value);
+}
+
 builder.Services.AddDbContext<ModerationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddCollectorEventBus(builder.Configuration);
+builder.Services.AddSingleton<IFraudDetector, RuleBasedFraudDetector>();
 builder.Services.AddHostedService<ArticleSubmittedConsumer>();
 builder.Services.AddHostedService<PriceChangedConsumer>();
 
@@ -23,6 +34,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.EnsureCreatedAsync();
 }
 
+app.UseHttpMetrics();
 app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/ready");
 

@@ -25,6 +25,11 @@ export function NavBar() {
             Catalogue
           </Link>
           {auth && (
+            <Link href="/commandes" className="text-zinc-600 hover:text-foreground dark:text-zinc-400">
+              Mes commandes
+            </Link>
+          )}
+          {auth && (
             <Link href="/notifications" className="text-zinc-600 hover:text-foreground dark:text-zinc-400">
               Notifications
             </Link>

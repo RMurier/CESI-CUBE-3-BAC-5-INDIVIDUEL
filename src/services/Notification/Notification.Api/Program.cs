@@ -1,3 +1,4 @@
+using Prometheus;
 using Notification.Api.Contracts;
 using Collector.Messaging;
 using Microsoft.EntityFrameworkCore;
@@ -7,11 +8,20 @@ using Notification.Api.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
+// Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
+var metricsPort = builder.Configuration.GetValue<int?>("Metrics:Port");
+if (metricsPort is not null)
+{
+    builder.Services.AddMetricServer(options => options.Port = (ushort)metricsPort.Value);
+}
+
 builder.Services.AddDbContext<NotificationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddCollectorEventBus(builder.Configuration);
 builder.Services.AddHostedService<ArticlePublishedConsumer>();
+builder.Services.AddHostedService<OrderPaidConsumer>();
 builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
 
 var frontendOrigin = builder.Configuration["Cors:FrontendOrigin"]
@@ -32,6 +42,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.EnsureCreatedAsync();
 }
 
+app.UseHttpMetrics();
 app.UseCors("Frontend");
 
 app.MapHealthChecks("/health");

@@ -5,6 +5,7 @@ public enum ArticleStatus
     PendingReview,
     Published,
     Rejected,
+    Sold,
 }
 
 public sealed class Article

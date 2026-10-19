@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
+  labels: { app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: collector-monitoring }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: prometheus }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: collector-monitoring }
+      annotations:
+        # Une modification de la config relance le pod : « je pousse, c'est pris en compte », sans reload manuel.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: prometheus
+      securityContext: { runAsNonRoot: true, runAsUser: 65534, fsGroup: 65534 }
+      containers:
+        - name: prometheus
+          image: {{ .Values.image }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.retention }}
+            # Reçoit les métriques de k6 (test de charge) pour les superposer aux pods dans Grafana.
+            - --web.enable-remote-write-receiver
+          ports:
+            - { name: http, containerPort: 9090 }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: http }
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus }
+            - { name: data, mountPath: /prometheus }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: { name: prometheus-config }
+        # emptyDir : la rétention est de 2 jours, perdre l'historique à un redéploiement est acceptable.
+        - name: data
+          emptyDir: { sizeLimit: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector: { app.kubernetes.io/name: prometheus }
+  ports:
+    - { name: http, port: 9090, targetPort: http }
+---
+# Sélectionner le pod suffit à l'isoler (tout ingress non listé est refusé) : seul Grafana peut l'interroger.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-from-grafana
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: prometheus }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: {{ .Values.allowedClientApp }} }
+      ports: [{ protocol: TCP, port: 9090 }]

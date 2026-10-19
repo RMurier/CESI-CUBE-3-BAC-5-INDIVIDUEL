@@ -16,6 +16,12 @@ spec:
     metadata:
       labels:
         {{- include "collector.labels" (dict "root" . "serviceName" "rabbitmq") | nindent 8 }}
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        # Plugin rabbitmq_prometheus (activé par défaut dans l'image officielle) : profondeur des files, débit.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15692"
+      {{- end }}
     spec:
       containers:
         - name: rabbitmq

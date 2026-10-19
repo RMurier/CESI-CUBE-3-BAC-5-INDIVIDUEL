@@ -1,0 +1,761 @@
+{
+  "uid": "collector-scalability",
+  "title": "Collector — Scalabilité (test de charge)",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pods prêts",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_deployment_status_replicas_available{namespace=\"$namespace\",deployment=\"$deployment\"}",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Réplicas demandés (HPA)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"$namespace\",horizontalpodautoscaler=\"$deployment\"}",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Maximum (HPA)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\",horizontalpodautoscaler=\"$deployment\"}",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Utilisateurs virtuels k6",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_vus)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Requêtes / s (k6)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(k6_http_reqs_total[30s]))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Latence p95 (k6)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_http_req_duration_p95)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 10,
+      "title": "1. Charge générée par k6",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_vus)",
+          "legendFormat": "utilisateurs virtuels",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(k6_http_reqs_total[30s]))",
+          "legendFormat": "requêtes / s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Ce que le test de charge envoie. Disponible quand le test est lancé depuis l'interface load-tests/ui avec l'envoi vers Prometheus activé."
+    },
+    {
+      "id": 11,
+      "title": "2. CPU rapporté au request — la valeur que le HPA surveille",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\",container!=\"\"}[1m])) / sum by (pod) (kube_pod_container_resource_requests{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\",resource=\"cpu\"})",
+          "legendFormat": "{{pod}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "avg(100 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\",container!=\"\"}[1m])) / sum by (pod) (kube_pod_container_resource_requests{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\",resource=\"cpu\"}))",
+          "legendFormat": "moyenne (cible du HPA)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "vector(70)",
+          "legendFormat": "seuil de déclenchement 70 %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Usage CPU réel / requests CPU du pod. Le HPA ajoute des pods quand la moyenne dépasse son seuil (70 %)."
+    },
+    {
+      "id": 12,
+      "title": "3. Réplicas : demandés par le HPA, créés, prêts",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"$namespace\",horizontalpodautoscaler=\"$deployment\"}",
+          "legendFormat": "demandés (desired)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"$namespace\",horizontalpodautoscaler=\"$deployment\"}",
+          "legendFormat": "créés (current)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "kube_deployment_status_replicas_available{namespace=\"$namespace\",deployment=\"$deployment\"}",
+          "legendFormat": "prêts (available)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\",horizontalpodautoscaler=\"$deployment\"}",
+          "legendFormat": "maximum",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "L'écart entre « demandés » et « prêts » est le temps de démarrage des pods (image, SQL Server, sonde de disponibilité)."
+    },
+    {
+      "id": 13,
+      "title": "4. Pods par état",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (phase) (kube_pod_status_phase{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\"})",
+          "legendFormat": "{{phase}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Pending = en cours de création ou de planification ; Running = démarré."
+    },
+    {
+      "id": 14,
+      "title": "5. Latence p95 et erreurs (côté k6)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(k6_http_req_duration_p95)",
+          "legendFormat": "p95 (ms)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "100 * max(k6_http_req_failed_rate)",
+          "legendFormat": "erreurs (%)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "6. Mémoire par pod",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\",container!=\"\"})",
+          "legendFormat": "{{pod}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "7. Redémarrages (5 dernières minutes)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\",pod=~\"$deployment-[a-z0-9]{8,10}-[a-z0-9]{5}\"}[5m]))",
+          "legendFormat": "{{pod}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Doit rester à 0 : un redémarrage pendant la charge indique un dépassement mémoire (OOMKilled) ou un crash."
+    },
+    {
+      "id": 17,
+      "title": "8. Requêtes / s côté serveur (par service)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(http_requests_received_total{namespace=\"$namespace\"}[1m]))",
+          "legendFormat": "{{service}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Environnement (namespace)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(kube_deployment_status_replicas_available, namespace)",
+        "refresh": 2,
+        "current": {
+          "text": "collector-dev",
+          "value": "collector-dev"
+        }
+      },
+      {
+        "name": "deployment",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(kube_deployment_status_replicas_available{namespace=\"$namespace\"}, deployment)",
+        "refresh": 2,
+        "current": {
+          "text": "collector-catalog",
+          "value": "collector-catalog"
+        }
+      }
+    ]
+  }
+}

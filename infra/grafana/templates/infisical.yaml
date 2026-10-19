@@ -1,0 +1,37 @@
+{{- if .Values.infisical.enabled }}
+# Même mécanisme que l'application (infra/helm/collector/templates/infisical-secret.yaml) : l'opérateur
+# Infisical synchronise GRAFANA_ADMIN_PASSWORD / GRAFANA_ADMIN_USER vers le Secret K8s {{ .Values.infisical.secretName }}.
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: {{ .Values.infisical.secretName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  hostAPI: {{ .Values.infisical.hostApiUrl }}
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectId: {{ .Values.infisical.projectId }}
+        envSlug: {{ .Values.infisical.environmentSlug }}
+        secretsPath: {{ .Values.infisical.secretsPath }}
+      credentialsRef:
+        secretName: {{ .Values.infisical.machineIdentitySecretName }}
+        secretNamespace: {{ .Release.Namespace }}
+  managedSecretReference:
+    secretName: {{ .Values.infisical.secretName }}
+    secretNamespace: {{ .Release.Namespace }}
+    creationPolicy: Orphan
+---
+# Identifiants de la Machine Identity Infisical, reprovisionnés à chaque déploiement (comme l'application) :
+# changer de serveur ne demande aucune étape manuelle.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.infisical.machineIdentitySecretName }}
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  clientId: {{ .Values.infisical.machineIdentity.clientId | quote }}
+  clientSecret: {{ .Values.infisical.machineIdentity.clientSecret | quote }}
+{{- end }}

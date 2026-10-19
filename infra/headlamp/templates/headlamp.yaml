@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp
+  namespace: {{ .Release.Namespace }}
+---
+# Compte DONT LE JETON sert à se connecter à l'interface : ClusterRole `view` intégrée à Kubernetes
+# (lecture seule ; n'inclut NI les Secrets NI les droits d'écriture). Un jeton volé ne permet donc de rien modifier.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: collector-headlamp-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: headlamp
+    namespace: {{ .Release.Namespace }}
+---
+# Jeton long durée du compte ci-dessus (Secret de type service-account-token, rempli par Kubernetes).
+# Récupération : kubectl -n {{ .Release.Namespace }} get secret headlamp-viewer-token -o jsonpath='{.data.token}' | base64 -d
+apiVersion: v1
+kind: Secret
+metadata:
+  name: headlamp-viewer-token
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    kubernetes.io/service-account.name: headlamp
+type: kubernetes.io/service-account-token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headlamp
+  namespace: {{ .Release.Namespace }}
+  labels: { app.kubernetes.io/name: headlamp, app.kubernetes.io/part-of: collector-monitoring }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: headlamp }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: headlamp, app.kubernetes.io/part-of: collector-monitoring }
+    spec:
+      serviceAccountName: headlamp
+      containers:
+        - name: headlamp
+          image: {{ .Values.image }}
+          # Mode in-cluster : l'utilisateur colle un jeton à la connexion, Headlamp agit avec SES droits (view).
+          args: ["-in-cluster", "-plugins-dir=/headlamp/plugins"]
+          ports:
+            - { name: http, containerPort: 4466 }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+          securityContext: { allowPrivilegeEscalation: false }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headlamp
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector: { app.kubernetes.io/name: headlamp }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# Joignable uniquement par Traefik.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: headlamp-from-traefik
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: headlamp }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: {{ .Values.trafficNamespace }} }
+      ports: [{ protocol: TCP, port: 4466 }]
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: headlamp-tls
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: headlamp-tls
+  dnsNames: [{{ .Values.host | quote }}]
+  issuerRef: { name: letsencrypt, kind: ClusterIssuer }
+{{- if .Values.allowedCidrs }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: headlamp-allow
+  namespace: {{ .Release.Namespace }}
+spec:
+  ipAllowList:
+    sourceRange:
+      {{- range .Values.allowedCidrs }}
+      - {{ . | quote }}
+      {{- end }}
+{{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: headlamp
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints: [websecure]
+  tls: { secretName: headlamp-tls }
+  routes:
+    - match: Host(`{{ .Values.host }}`)
+      kind: Rule
+      {{- if .Values.allowedCidrs }}
+      middlewares:
+        - name: headlamp-allow
+      {{- end }}
+      services:
+        - { name: headlamp, port: 80 }
+---
+# Port 80 -> redirection permanente vers HTTPS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: headlamp-redirect-https
+  namespace: {{ .Release.Namespace }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: headlamp-http-redirect
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints: [web]
+  routes:
+    - match: Host(`{{ .Values.host }}`)
+      kind: Rule
+      middlewares:
+        - name: headlamp-redirect-https
+      services:
+        - { name: headlamp, port: 80 }

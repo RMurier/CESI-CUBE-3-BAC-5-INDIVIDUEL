@@ -1,3 +1,4 @@
+using Prometheus;
 using System.Text;
 using Chat.Api.Hubs;
 using Chat.Api.Infrastructure;
@@ -6,6 +7,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
+// Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
+var metricsPort = builder.Configuration.GetValue<int?>("Metrics:Port");
+if (metricsPort is not null)
+{
+    builder.Services.AddMetricServer(options => options.Port = (ushort)metricsPort.Value);
+}
 
 builder.Services.AddDbContext<ChatDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
@@ -65,6 +74,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.EnsureCreatedAsync();
 }
 
+app.UseHttpMetrics();
 app.UseAuthentication();
 app.UseAuthorization();
 

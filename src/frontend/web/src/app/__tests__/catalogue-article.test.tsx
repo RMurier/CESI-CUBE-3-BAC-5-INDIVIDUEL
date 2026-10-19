@@ -10,6 +10,7 @@ jest.mock("@/lib/api/catalog", () => ({
   listPublishedArticles: jest.fn(),
   getArticle: jest.fn(),
 }));
+jest.mock("@/lib/auth-context", () => ({ useAuth: () => ({ auth: null, getToken: jest.fn() }) }));
 jest.mock("../boutiques/[shopId]/ShopDetailClient", () => ({
   ShopDetailClient: ({ shopId }: { shopId: string }) => <p>shop:{shopId}</p>,
 }));
@@ -55,6 +56,7 @@ describe("ArticleDetailClient", () => {
     expect(screen.getByText(/Chargement de l/)).toBeInTheDocument();
     expect(await screen.findByText("Figurine rare")).toBeInTheDocument();
     expect(screen.getByText("Publié le")).toBeInTheDocument();
+    expect(screen.getByText(/Connectez-vous/)).toBeInTheDocument(); // visiteur : pas de bouton Acheter
   });
 
   it("affiche le motif de rejet", async () => {

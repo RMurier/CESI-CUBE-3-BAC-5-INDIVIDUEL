@@ -1,0 +1,21 @@
+{
+  "dev": {
+    "label": "dev",
+    "baseUrl": "https://dev.collector.romainmurier.com",
+    "namespace": "collector-dev",
+    "maxVus": 200
+  },
+  "uat": {
+    "label": "uat",
+    "baseUrl": "https://uat.collector.romainmurier.com",
+    "namespace": "collector-uat",
+    "maxVus": 100
+  },
+  "prod": {
+    "label": "prod",
+    "baseUrl": "https://collector.romainmurier.com",
+    "namespace": "collector-prod",
+    "maxVus": 20,
+    "requireConfirm": true
+  }
+}

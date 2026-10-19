@@ -1,0 +1,18 @@
+image: prom/prometheus:v2.55.1
+
+# Namespaces applicatifs dont les pods annotés prometheus.io/scrape=true sont scrapés.
+watchedNamespaces:
+  - collector-dev
+  - collector-uat
+  - collector-prod
+
+retention: 2d          # suffit pour la démo et limite l'usage disque/RAM
+scrapeInterval: 30s
+
+# cAdvisor + kube-state-metrics sur 3 environnements : ~40 000 séries, d'où une marge mémoire supérieure.
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 500m, memory: 768Mi }
+
+# Seul pod autorisé à interroger Prometheus (étiquette app.kubernetes.io/name de Grafana).
+allowedClientApp: grafana

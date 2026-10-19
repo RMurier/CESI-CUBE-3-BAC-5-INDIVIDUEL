@@ -8,6 +8,7 @@ import { listNotifications, markRead, subscribe } from "@/lib/api/notification";
 const push = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 jest.mock("@/lib/auth-context", () => ({ useAuth: jest.fn() }));
+jest.mock("@/components/PayoutSetup", () => ({ PayoutSetup: () => <p>payout-setup</p> }));
 jest.mock("@/lib/api/catalog", () => ({ createShop: jest.fn() }));
 jest.mock("@/lib/api/notification", () => ({
   listNotifications: jest.fn(),
@@ -52,7 +53,7 @@ describe("AccountPage", () => {
   });
 
   it("crée une boutique, la mémorise et l'affiche", async () => {
-    (useAuth as jest.Mock).mockReturnValue({ auth: seller, loading: false });
+    (useAuth as jest.Mock).mockReturnValue({ auth: seller, loading: false, getToken: async () => "t" });
     (createShop as jest.Mock).mockResolvedValue({ id: "s1", name: "Ma boutique" });
     render(<AccountPage />);
     expect(screen.getByText(/Aucune boutique créée/)).toBeInTheDocument();
@@ -64,7 +65,7 @@ describe("AccountPage", () => {
   });
 
   it("affiche l'erreur de création de boutique", async () => {
-    (useAuth as jest.Mock).mockReturnValue({ auth: seller, loading: false });
+    (useAuth as jest.Mock).mockReturnValue({ auth: seller, loading: false, getToken: async () => "t" });
     (createShop as jest.Mock).mockRejectedValueOnce(new Error("Refusé")).mockRejectedValueOnce("x");
     render(<AccountPage />);
     fireEvent.change(screen.getByLabelText(/Nom/), { target: { value: "B" } });

@@ -1,16 +1,29 @@
+using Prometheus;
 using Identity.Api.Contracts;
 using System.Security.Claims;
 using System.Text;
 using Identity.Api.Domain;
 using Identity.Api.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
+// Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
+var metricsPort = builder.Configuration.GetValue<int?>("Metrics:Port");
+if (metricsPort is not null)
+{
+    builder.Services.AddMetricServer(options => options.Port = (ushort)metricsPort.Value);
+}
+
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddScoped<RefreshTokenService>();
 
 builder.Services.AddDbContext<IdentityDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
@@ -47,6 +60,34 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy => poli
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
+// Derrière Traefik, l'IP du client arrive dans X-Forwarded-For : sans ça le rate limiter verrait
+// une seule IP (celle du proxy) et bloquerait tout le monde d'un coup.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Anti brute-force / credential stuffing : fenêtre fixe par IP sur les endpoints d'authentification.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // Config lue à la requête (et non au démarrage) pour pouvoir être surchargée par les tests.
+    options.AddPolicy("auth", httpContext =>
+    {
+        var config = httpContext.RequestServices.GetRequiredService<IConfiguration>();
+        return RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = config.GetValue("RateLimiting:AuthPermitLimit", 10),
+                Window = TimeSpan.FromSeconds(config.GetValue("RateLimiting:AuthWindowSeconds", 60)),
+                QueueLimit = 0,
+            });
+    });
+});
+
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<IdentityDbContext>();
 
@@ -56,10 +97,13 @@ using (var scope = app.Services.CreateScope())
 {
     // Prototype : EnsureCreated plutôt que des migrations formelles (cf. README section 11).
     var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    await db.EnsureCreatedAndUpToDateAsync();
 }
 
+app.UseHttpMetrics();
+app.UseForwardedHeaders();
 app.UseCors("Frontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -84,9 +128,9 @@ app.MapPost("/auth/register", async (RegisterRequest request, IdentityDbContext 
     await db.SaveChangesAsync();
 
     return Results.Created($"/users/{user.Id}", new { user.Id, user.Email, user.DisplayName });
-});
+}).RequireRateLimiting("auth");
 
-app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, JwtTokenService tokenService) =>
+app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, JwtTokenService tokenService, RefreshTokenService refreshTokens) =>
 {
     var user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email);
     if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
@@ -95,7 +139,24 @@ app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, Jw
     }
 
     var token = tokenService.IssueToken(user);
-    return Results.Ok(new { accessToken = token, roles = user.Roles() });
+    var refreshToken = await refreshTokens.IssueAsync(user);
+    return Results.Ok(new { accessToken = token, refreshToken, roles = user.Roles() });
+}).RequireRateLimiting("auth");
+
+app.MapPost("/auth/refresh", async (RefreshRequest request, JwtTokenService tokenService, RefreshTokenService refreshTokens) =>
+{
+    var user = await refreshTokens.ConsumeAsync(request.RefreshToken);
+    if (user is null) return Results.Unauthorized();
+
+    var token = tokenService.IssueToken(user);
+    var refreshToken = await refreshTokens.IssueAsync(user);
+    return Results.Ok(new { accessToken = token, refreshToken, roles = user.Roles() });
+}).RequireRateLimiting("auth");
+
+app.MapPost("/auth/logout", async (RefreshRequest request, RefreshTokenService refreshTokens) =>
+{
+    await refreshTokens.RevokeAsync(request.RefreshToken);
+    return Results.NoContent();
 });
 
 app.MapPost("/auth/become-seller", async (ClaimsPrincipal principal, IdentityDbContext db) =>
@@ -108,6 +169,8 @@ app.MapPost("/auth/become-seller", async (ClaimsPrincipal principal, IdentityDbC
     await db.SaveChangesAsync();
     return Results.Ok(new { user.Id, roles = user.Roles() });
 }).RequireAuthorization();
+
+app.MapMaintenanceEndpoints();
 
 await app.RunAsync();
 

@@ -12,7 +12,7 @@ const currency = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "
 const POLL_INTERVAL_MS = 3000;
 
 export function ShopDetailClient({ shopId }: { shopId: string }) {
-  const { auth } = useAuth();
+  const { auth, getToken } = useAuth();
 
   const [shop, setShop] = useState<ShopDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
     setFormError(null);
     setSubmitting(true);
     try {
-      await createArticle(auth.token, shopId, {
+      await createArticle(await getToken(), shopId, {
         title,
         description,
         price: Number(price),

@@ -1,0 +1,14 @@
+image: ghcr.io/headlamp-k8s/headlamp:v0.26.0
+
+# DNS à créer (A -> IP du serveur) ; certificat Let's Encrypt via cert-manager (ClusterIssuer "letsencrypt").
+host: headlamp.collector.romainmurier.com
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: 200m, memory: 192Mi }
+
+# Restriction réseau optionnelle (CIDR autorisés à joindre l'interface, ex. ["203.0.113.10/32"]).
+# Vide = joignable depuis Internet, protégé uniquement par le jeton ci-dessous. Nécessite Traefik v3 (ipAllowList).
+allowedCidrs: []
+
+trafficNamespace: kube-system

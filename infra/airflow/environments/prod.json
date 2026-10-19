@@ -1,0 +1,3 @@
+{
+  "prod": { "base_url": "https://collector.romainmurier.com", "key_variable": "collector_prod_maintenance_key" }
+}
