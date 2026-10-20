@@ -42,6 +42,11 @@ name: CI/CD
 # déploiement via --set ci-dessous (voir templates/infisical-machine-identity.yaml) : changer de
 # serveur = changer KUBE_CONFIG_B64, le reste se reconfigure automatiquement au prochain déploiement.
 #
+# --wait --timeout 15m (au lieu de 5m) sur tous les helm upgrade : le serveur Omnia qui héberge les 3
+# environnements est un Pentium G4600 (2C/4T) — un rollout peut rester en Pending le temps que la charge
+# CPU réelle (load average observé jusqu'à ~10 sur 4 threads) redescende, pas juste le temps d'un
+# scheduling K8s normal.
+#
 # Les 3 jobs de déploiement tournent sur le runner self-hosted installé sur le serveur qui héberge
 # le cluster k3s lui-même (pas un runner GitHub-hosted) : l'API Kubernetes est donc jointe en local
 # (le KUBE_CONFIG_B64 généré par k3s, avec son 127.0.0.1 par défaut, fonctionne tel quel — pas besoin
@@ -469,7 +474,7 @@ jobs:
             --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-uat:
     name: Déploiement uat
@@ -491,7 +496,7 @@ jobs:
             --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-prod:
     name: Déploiement prod
@@ -523,7 +528,7 @@ jobs:
             --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   # Les jobs ci-dessous tournent EN PARALLÈLE de deploy-dev / deploy-uat / deploy-prod : mêmes conditions
   # de déclenchement (push develop -> dev, push master -> uat, release publiée -> production — reviewer
@@ -561,7 +566,7 @@ jobs:
           helm upgrade --install collector-prometheus infra/prometheus \
             --namespace collector-monitoring --create-namespace \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-kube-state-metrics:
     name: Déploiement kube-state-metrics
@@ -585,7 +590,7 @@ jobs:
           helm upgrade --install collector-kube-state-metrics infra/kube-state-metrics \
             --namespace collector-monitoring --create-namespace \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-headlamp:
     name: Déploiement Headlamp
@@ -609,7 +614,7 @@ jobs:
           helm upgrade --install collector-headlamp infra/headlamp \
             --namespace collector-monitoring --create-namespace \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-grafana:
     name: Déploiement Grafana
@@ -635,7 +640,7 @@ jobs:
             --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
-            --wait --timeout 5m
+            --wait --timeout 15m
 
   deploy-airflow:
     name: Déploiement DAGs Airflow
