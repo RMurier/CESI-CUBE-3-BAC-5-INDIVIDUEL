@@ -2,6 +2,13 @@
 # secret arrive via l'InfisicalSecret -> Secret K8s "collector-secrets", cf. templates/infisical-secret.yaml).
 # Les fichiers values-dev.yaml / values-uat.yaml / values-prod.yaml ne surchargent que ce qui
 # diffère réellement entre environnements (domaine, replicas, ressources, tag d'image, edition SQL).
+#
+# requests.cpu volontairement bas (apps: 50m, sqlServer: 100m) par rapport aux limits : dev et uat
+# tournent en permanence sur le même nœud k3s (4 cœurs, partagé avec d'autres charges) — c'est la
+# somme des REQUESTS qui détermine si le scheduler peut poser un pod, pas l'usage réel. Avec 100m/
+# 250m d'origine, dev+uat cumulaient ~3,9 cœurs de requests pour ~0,1 cœur d'usage réel observé
+# (kubectl top pods), ce qui a fait échouer le scheduling de collector-chat-sql/collector-moderation-sql
+# sur uat (FailedScheduling: Insufficient cpu) alors que le nœud était à 52% d'usage réel.
 
 global:
   imageRegistry: "ghcr.io/rmurier"     # owner GHCR réel (lowercase requis par la norme OCI)
@@ -27,7 +34,7 @@ services:
       pathPrefix: /api/identity
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   catalog:
@@ -42,7 +49,7 @@ services:
       pathPrefix: /api/catalog
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   chat:
@@ -56,7 +63,7 @@ services:
       pathPrefix: /hubs/chat
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   notification:
@@ -70,7 +77,7 @@ services:
       pathPrefix: /api/notifications
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   moderation:
@@ -84,7 +91,7 @@ services:
       pathPrefix: ""
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   frontend:
@@ -97,7 +104,7 @@ services:
       pathPrefix: /
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      requests: { cpu: 50m, memory: 256Mi, ephemeral-storage: 128Mi }
       limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
 rabbitmq:
@@ -111,7 +118,7 @@ sqlServer:
   image: "mcr.microsoft.com/mssql/server:2022-latest"
   storage: 5Gi
   resources:
-    requests: { cpu: 250m, memory: 2Gi, ephemeral-storage: 256Mi }
+    requests: { cpu: 100m, memory: 2Gi, ephemeral-storage: 256Mi }
     limits: { cpu: "1", memory: 2Gi, ephemeral-storage: 1Gi }
 
 # Restriction réseau des routes /internal/* (appelées par Airflow). Vide = pas de restriction réseau
