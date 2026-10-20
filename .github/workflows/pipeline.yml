@@ -78,10 +78,10 @@ jobs:
       # paths-filter calcule un diff via git localement (sur push, il n'y a pas de PR dont l'API
       # fournirait la liste des fichiers) : il faut donc un checkout avec historique, pas seulement
       # le dernier commit.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -103,9 +103,9 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -127,9 +127,9 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -157,9 +157,9 @@ jobs:
       run:
         working-directory: src/frontend/web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -184,20 +184,20 @@ jobs:
       needs.test-frontend.result != 'failure' && needs.test-frontend.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # requis par SonarScanner pour l'analyse des blames/nouveau code
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
-      - uses: actions/setup-java@v4 # requis par le scanner Sonar (JVM)
+      - uses: actions/setup-java@v6 # requis par le scanner Sonar (JVM)
         with:
           distribution: temurin
           java-version: "21"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -325,9 +325,9 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -343,7 +343,7 @@ jobs:
       - name: NuGet — rapport complet (y compris Low/Moderate, non bloquant)
         run: dotnet list src/Collector.sln package --vulnerable --include-transitive
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -384,7 +384,7 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       registry: ${{ steps.tag.outputs.registry }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: tag
         name: Déterminer le tag et le registre d'image
@@ -394,15 +394,15 @@ jobs:
           echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -429,7 +429,7 @@ jobs:
           trivy --version
 
       - name: Scan de vulnérabilités de l'image (Trivy)
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           skip-setup-trivy: true
           image-ref: ${{ steps.tag.outputs.registry }}/collector-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
@@ -443,7 +443,7 @@ jobs:
             ${{ steps.tag.outputs.registry }}/collector-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
 
       - name: Publier le SBOM en artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.cdx.json
@@ -456,8 +456,8 @@ jobs:
     runs-on: self-hosted
     environment: dev
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
 
       - name: Déployer sur K3s (namespace collector-dev)
         run: |
@@ -478,8 +478,8 @@ jobs:
     runs-on: self-hosted
     environment: uat
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
 
       - name: Déployer sur K3s (namespace collector-uat)
         run: |
@@ -505,8 +505,8 @@ jobs:
     runs-on: self-hosted
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
 
       - id: tag
         name: Déterminer le tag d'image (déjà poussé sur GHCR, pas de rebuild)
@@ -552,8 +552,8 @@ jobs:
       group: deploy-prometheus
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/prometheus
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -576,8 +576,8 @@ jobs:
       group: deploy-kube-state-metrics
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/kube-state-metrics
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -600,8 +600,8 @@ jobs:
       group: deploy-headlamp
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/headlamp
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -624,8 +624,8 @@ jobs:
       group: deploy-grafana
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/grafana --set infisical.machineIdentity.clientId=ci --set infisical.machineIdentity.clientSecret=ci
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -653,7 +653,7 @@ jobs:
       group: deploy-airflow-${{ github.event_name == 'release' && 'prod' || 'dev' }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Installer sshpass
         run: sudo apt-get install -y sshpass
       - name: Déployer les DAGs (instance ${{ github.event_name == 'release' && 'prod' || 'dev' }})
