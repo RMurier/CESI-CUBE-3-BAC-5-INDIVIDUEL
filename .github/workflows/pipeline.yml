@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -76,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -124,7 +124,7 @@ jobs:
         with:
           fetch-depth: 0 # requis par SonarScanner pour l'analyse des blames/nouveau code
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -261,7 +261,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
