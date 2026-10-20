@@ -146,6 +146,7 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Observabilité (métriques) | **Prometheus + Grafana**, en complément d'Omnia si besoin | 2026-10-11 | Standard K8s, dashboards de charge utiles en soutenance |
 | Load testing | **k6** (scénario versionné dans `load-tests/`) | 2026-10-19 | Scriptable en JS, seuils qui font échouer le run (réutilisable en gate), ~50 Mo de RAM ; équivalent accepté par les consignes (« Siege/JMeter ou équivalent ») |
 | Stratégie de branches | **`develop`→dev, `uat`→uat, `master`→prod** (push direct, pas de tags), déploiement prod protégé par l'environnement GitHub "production" (reviewer requis) | 2026-10-14 | Le repo utilise `master` comme branche par défaut (pas `main`) — alignement du pipeline CD sur les branches réelles, schéma tag-based abandonné pour rester simple en solo dev |
+| Stratégie de branches (révisée) | **`develop`→dev, `master`→uat, release (tag) publiée depuis master→prod** — remplace la ligne ci-dessus, branche `uat` dédiée abandonnée | 2026-10-20 | `develop`/`uat`/`master` ne divergeaient jamais vraiment en contenu : les garder synchronisées demandait un fast-forward manuel à chaque fois (observé en session). Une release versionnée (tag) est un geste de promotion en prod plus explicite et plus sûr qu'un simple 3e push ; `deploy-prod` ne rebuild pas, il réutilise par son SHA l'image déjà buildée/poussée lors du push sur master qui a précédé la release — ce qui tourne en prod est donc exactement ce qui a été validé en uat |
 | Nom de domaine | **romainmurier.com** : `dev.collector.romainmurier.com` (dev), `uat.collector.romainmurier.com` (uat), `collector.romainmurier.com` (prod) | 2026-10-14 | Domaine personnel de l'utilisateur, déjà configurable (DNS + cert-manager/Let's Encrypt) |
 | Séparation des secrets | **GitHub** (secrets de **repo**, une seule valeur de chaque) = secrets d'infra CI/CD : `KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`, `SONAR_HOST_URL`/`SONAR_TOKEN`. **Infisical** = secrets applicatifs uniquement, jamais lus par la CI — synchronisés en continu vers K8s par l'Infisical Secrets Operator (`resyncInterval: 60`), dont le Secret d'auth (`infisical-machine-identity`) est lui-même reprovisionné à chaque déploiement via `--set` depuis les GitHub Secrets ci-dessus | 2026-10-15 | Les 3 environnements tournent sur le **même cluster OVH physique** : ce sont des valeurs identiques pour dev/uat/prod, donc secret de repo (pas de secret d'environnement — le job `deploy-prod` est déjà bloqué par l'approbation reviewer via `environment: production`, dupliquer la valeur n'ajoutait aucune barrière réelle en plus). Objectif annexe : changer de serveur (nouveau `KUBE_CONFIG_B64`) ne doit demander aucune étape manuelle côté Infisical — satisfait en faisant provisionner `infisical-machine-identity` par le chart lui-même |
 | Mot de passe SQL Server par service | `MSSQL_SA_PASSWORD__<service>` : **une valeur `sa` distincte par service** (5 clés Infisical, pas 1 partagée) | 2026-10-16 | Avoir 5 instances SQL Server isolées mais un seul mot de passe `sa` partagé entre elles annulait une partie du bénéfice de l'isolation (critère grille #2) : une connection string qui fuite donnait accès `sa` aux 4 autres bases. Le mot de passe varie aussi naturellement par environnement puisque dev/staging/prod sont des scopes Infisical séparés |
@@ -320,19 +321,20 @@ tournent sur PR et push ; `build-and-push` et les déploiements ne tournent que 
 sur une PR).
 
 En plus des trois `deploy-dev/uat/prod`, cinq jobs tournent **en parallèle d'eux (et entre eux) avec
-exactement les mêmes conditions** (`needs: build-and-push`, mêmes branches, mêmes environnements GitHub,
-donc approbation « production » sur master) : `deploy-prometheus`, `deploy-kube-state-metrics`,
+les mêmes conditions de déclenchement** (push develop -> dev, push master -> uat, release publiée ->
+production avec approbation reviewer) : `deploy-prometheus`, `deploy-kube-state-metrics`,
 `deploy-headlamp`, `deploy-grafana` (un par chart, tous dans le namespace `collector-monitoring` —
 séparés pour qu'un timeout readiness sur l'un n'empêche pas les 3 autres et qu'on voie immédiatement
-lequel est en cause) et `deploy-airflow` (DAGs vers l'instance dev pour develop/uat, prod pour master,
-voir `infra/airflow/README.md`). Chaque push modifiant un chart de monitoring ou un DAG est donc
-redéployé sans action manuelle ; les pods redémarrent seuls quand leur config change (annotation `checksum`).
+lequel est en cause) et `deploy-airflow` (DAGs vers l'instance dev pour develop/master, prod pour une
+release, voir `infra/airflow/README.md`). Chaque push/release modifiant un chart de monitoring ou un
+DAG est donc redéployé sans action manuelle ; les pods redémarrent seuls quand leur config change
+(annotation `checksum`).
 Hors `pipeline.yml` : `codeql.yml` (analyse statique C# et TypeScript) et Dependabot (NuGet, npm, Docker,
 Actions). Le job `build-and-push` publie aussi un SBOM CycloneDX par image.
 
 ```mermaid
 flowchart TD
-    A["push / PR (develop, uat, master)"] --> B["test-backend-unit<br/>logique pure (PersonalDataFilter, AutomatedModerationRules)"]
+    A["push / PR (develop, master)"] --> B["test-backend-unit<br/>logique pure (PersonalDataFilter, AutomatedModerationRules)"]
     A --> B2["test-backend-integration<br/>WebApplicationFactory + SQL Server (Testcontainers)"]
     A --> C["test-frontend<br/>npm lint + test (Jest) + build"]
     A --> D["vulnerabilities<br/>dotnet list --vulnerable (NuGet) + npm audit (frontend, prod only)"]
@@ -346,10 +348,12 @@ flowchart TD
     E --> F
     F --> G{"Déclencheur ?"}
     G -->|push develop| H["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
-    G -->|push uat| I["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
-    G -->|push master| J["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
+    G -->|push master| I["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
+    R["release publiée (tag depuis master)"] -->|pas de rebuild, réutilise le SHA déjà poussé sur GHCR| J["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
     F --> K["deploy-prometheus / deploy-kube-state-metrics /<br/>deploy-headlamp / deploy-grafana<br/>(4 jobs en parallèle, mêmes conditions)<br/>namespace collector-monitoring"]
-    F --> L["deploy-airflow (en parallèle, mêmes conditions)<br/>develop/uat → instance dev · master → instance prod<br/>dags collector_* par SSH"]
+    F --> L["deploy-airflow (en parallèle, mêmes conditions)<br/>develop/master → instance dev · release → instance prod<br/>dags collector_* par SSH"]
+    R --> K
+    R --> L
 ```
 
 **Séparation stricte des deux magasins de secrets** (décision 2026-10-15, voir section 4) :
@@ -615,7 +619,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
       implémentant `IEmailSender` sans toucher au reste du service.
 - [x] **Outil de test de charge** : **k6** retenu (scénario `load-tests/catalog-read.js`, seuils p95 < 500 ms / erreurs < 1 %, voir `load-tests/README.md`).
 - [ ] **Convention de commits** : Conventional Commits ou libre ? (la stratégie de branches
-      elle-même est tranchée, voir section 4 — `develop`→dev, `uat`→uat, `master`→prod).
+      elle-même est tranchée, voir section 4 — `develop`→dev, `master`→uat, release→prod).
 - [ ] **Repo GitHub public ou privé** ? Impacte la visibilité pour le jury et l'accessibilité GHCR.
 - [ ] **Clés Infisical à renseigner** avant le premier déploiement réel — uniquement des secrets
       **applicatifs** (liste complète dans `infra/helm/collector/README.md`) : `Jwt__SigningKey`,
@@ -648,7 +652,7 @@ d'intégration xUnit/Testcontainers restent un 3ᵉ type à activer une fois ce 
 ## 12.1 Feuille de route : chantiers à ajouter (2026-10-19)
 
 > Cases cochées = implémenté dans le code (mais pas forcément encore déployé : un push sur
-> `develop`, `uat` ou `master` déclenche la CD). Les tests d'intégration (Testcontainers) de ces chantiers n'ont **pas pu
+> `develop` ou `master`, ou la publication d'une release, déclenche la CD). Les tests d'intégration (Testcontainers) de ces chantiers n'ont **pas pu
 > être exécutés localement** (Docker/WSL indisponible) : ils sont validés par la CI. Ordre = priorité vis-à-vis de la grille d'évaluation.
 
 ### Étape 1 — Sécurité rapide (critère #8)

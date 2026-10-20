@@ -3,19 +3,19 @@
 Ce dossier **ne déploie pas Airflow** : il contient les DAGs Collector et leur déploiement sur tes instances
 existantes (même serveur, deux instances : `/opt/airflow-dev` et `/opt/airflow-prod`, comme `omnia-airflow` et `porty-airflow`).
 
-| Instance Airflow | Branche → déploiement | Environnements Collector pilotés |
+| Instance Airflow | Déclencheur → déploiement | Environnements Collector pilotés |
 |---|---|---|
-| `dev.airflow.romainmurier.com` (`/opt/airflow-dev/dags`) | `develop` **et** `uat` | `dev` **et** `uat` |
-| `airflow.romainmurier.com` (`/opt/airflow-prod/dags`) | `master` | `prod` |
+| `dev.airflow.romainmurier.com` (`/opt/airflow-dev/dags`) | push `develop` **ou** push `master` | `dev` **et** `uat` |
+| `airflow.romainmurier.com` (`/opt/airflow-prod/dags`) | publication d'une **release** (tag depuis master) | `prod` |
 
 dev et uat (« qualif ») partagent donc la même instance, **sans dupliquer aucun DAG** : chaque DAG existe en un seul
 exemplaire et crée une tâche par environnement (dynamic task mapping, `.expand(env=...)`). La liste des environnements
 vient de `environments/dev.json`, déposé sur le serveur sous le nom `collector_environments.json`. Dans l'interface Airflow,
 un run de `collector_expire_pending_orders` affiche donc `expire_pending_orders [dev]` et `expire_pending_orders [uat]` : un échec
 sur uat n'empêche pas dev (et inversement) et chacun a ses propres logs et retries. Ajouter un environnement = une ligne dans le
-JSON, pas un nouveau DAG. L'instance prod charge `prod.json` et ne peut atteindre ni dev ni uat. Les pushes `develop` et `uat`
-déploient tous deux sur cette instance dev partagée : le dernier push l'emporte (en flux normal develop -> uat, uat est en retard
-sur develop ; les DAGs de dev sont alors remplacés par ceux de uat jusqu'au prochain push sur develop).
+JSON, pas un nouveau DAG. L'instance prod charge `prod.json` et ne peut atteindre ni dev ni uat. Les pushes `develop` et `master`
+déploient tous deux sur cette instance dev partagée : le dernier push l'emporte (en flux normal develop -> master, master est en
+retard sur develop ; les DAGs de dev sont alors remplacés par ceux poussés via master jusqu'au prochain push sur develop).
 
 ## Fichiers (convention des dépôts `{app}-airflow`)
 
@@ -44,9 +44,9 @@ Les horaires (cron) sont en UTC, comme pour les autres DAGs.
 ## CI/CD
 
 `pipeline.yml`, job `deploy-airflow` : il tourne **en parallèle** de `deploy-dev` / `deploy-uat` / `deploy-prod`, avec les mêmes
-conditions qu'eux (`needs: build-and-push`, donc tous les tests et scans verts ; mêmes branches ; mêmes environnements GitHub :
-develop -> `dev`, uat -> `uat`, master -> `production`, donc approbation du reviewer sur master). Il exécute
-`infra/airflow/deploy-dags.sh <dev|prod>` (`prod` si master, sinon `dev`) qui :
+conditions de déclenchement qu'eux (tous les tests et scans verts côté push ; mêmes environnements GitHub :
+push develop -> `dev`, push master -> `uat`, release publiée -> `production`, donc approbation du reviewer). Il exécute
+`infra/airflow/deploy-dags.sh <dev|prod>` (`prod` sur une release, sinon `dev`) qui :
 1. vérifie : syntaxe Python, id de DAG = nom de fichier, JSON valide, URLs en https ;
 2. envoie les fichiers `collector_*` en SSH (`tar`) à la racine de `dags/` ;
 3. supprime sur le serveur les `collector_*` qui ne sont plus dans le dépôt (DAG renommé/supprimé) — **uniquement ce préfixe** :

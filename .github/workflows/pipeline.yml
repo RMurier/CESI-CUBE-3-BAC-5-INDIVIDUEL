@@ -13,12 +13,22 @@ name: CI/CD
 # encadrer la compilation elle-même) mais needs les deux jobs de tests backend — pas la peine de
 # lancer l'analyse Sonar si les tests de base échouent déjà. build-and-push exige que LES CINQ jobs
 # de qualité aient réussi (needs), donc un test/scan en échec bloque tout déploiement, pas seulement
-# un warning. build-and-push et les 3 jobs de déploiement ne tournent QUE sur push (jamais sur une PR).
+# un warning. build-and-push et les jobs de déploiement ne tournent QUE sur push ou release (jamais
+# sur une PR).
 #
-# develop -> déploiement auto sur dev
-# uat     -> déploiement auto sur uat
-# master  -> déploiement sur prod, protégé par l'environnement GitHub "production" (reviewers requis,
-#            à configurer une fois dans Settings > Environments — pas automatisable depuis ce fichier).
+# develop -> déploiement auto sur dev (build + push des images à chaque push)
+# master  -> déploiement auto sur uat (mêmes images buildées sur ce push) — "master est stable, uat
+#            le démontre en continu"
+# Créer une release (tag) depuis master -> déploiement sur prod, protégé par l'environnement GitHub
+#            "production" (reviewers requis, à configurer une fois dans Settings > Environments — pas
+#            automatisable depuis ce fichier). deploy-prod ne rebuild PAS : il réutilise par son SHA
+#            l'image déjà buildée/poussée lors du push sur master qui a précédé la release — ce qui
+#            tourne en prod est donc exactement, bit pour bit, ce qui a été validé en uat, jamais une
+#            recompilation séparée qui pourrait diverger.
+#
+# (Ancien schéma à 3 branches develop/uat/master abandonné : les 3 ne divergeaient jamais vraiment en
+# contenu, et les garder synchronisées demandait un fast-forward manuel à chaque fois — une release
+# versionnée est un geste de promotion plus explicite et plus sûr qu'un simple push sur une 3e branche.)
 #
 # Séparation des secrets : KUBE_CONFIG_B64 et INFISICAL_CLIENT_ID/SECRET (accès au cluster et à
 # Infisical, secrets d'infra CI/CD) vivent en secrets de REPO GitHub, pas dans Infisical — les 3
@@ -39,9 +49,12 @@ name: CI/CD
 
 on:
   pull_request:
-    branches: [develop, uat, master]
+    branches: [develop, master]
   push:
-    branches: [develop, uat, master]
+    branches: [develop, master]
+  # Déploiement prod : publier une release (tag) depuis master, pas un push de plus. Voir deploy-prod.
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -56,6 +69,7 @@ jobs:
   # de déploiement actuel, seulement le volume de jobs sur les PR.
   changes:
     name: Détection des fichiers modifiés
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -84,7 +98,9 @@ jobs:
   test-backend-unit:
     name: Tests backend (.NET) — unitaires
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
+    # Explicite plutôt que "!= 'pull_request'" : exclut aussi release (rien de neuf à tester, le
+    # commit taggué a déjà tourné ici au push sur master qui l'a précédé).
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +124,7 @@ jobs:
   test-backend-integration:
     name: Tests backend (.NET) — intégration (Testcontainers)
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +151,7 @@ jobs:
   test-frontend:
     name: Tests frontend (Next.js)
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -162,7 +178,7 @@ jobs:
     # nous-mêmes qu'aucun des 3 n'a échoué (un skip est accepté, un échec ou une annulation non).
     if: >
       always() &&
-      (github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') &&
+      (github.event_name == 'push' || (github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'))) &&
       needs.test-backend-unit.result != 'failure' && needs.test-backend-unit.result != 'cancelled' &&
       needs.test-backend-integration.result != 'failure' && needs.test-backend-integration.result != 'cancelled' &&
       needs.test-frontend.result != 'failure' && needs.test-frontend.result != 'cancelled'
@@ -306,7 +322,7 @@ jobs:
   vulnerabilities:
     name: Scan de vulnérabilités (dépendances)
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -457,7 +473,7 @@ jobs:
 
   deploy-uat:
     name: Déploiement uat
-    if: github.event_name == 'push' && github.ref == 'refs/heads/uat'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build-and-push
     runs-on: self-hosted
     environment: uat
@@ -479,13 +495,23 @@ jobs:
 
   deploy-prod:
     name: Déploiement prod
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: build-and-push
+    # Déclenché par la publication d'une release (tag), pas par un push sur master : build-and-push
+    # ne tourne pas sur cet évènement (voir son "if"), donc pas de needs dessus. On recalcule le même
+    # format de tag ("sha-<7 premiers caractères>") à partir du SHA taggué par la release — identique
+    # à celui déjà poussé sur GHCR lors du push sur master qui a précédé cette release (aucun rebuild :
+    # l'image déployée en prod est bit pour bit celle déjà validée en uat). La release doit donc être
+    # créée depuis le HEAD de master, pas un commit plus ancien.
+    if: github.event_name == 'release'
     runs-on: self-hosted
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
+
+      - id: tag
+        name: Déterminer le tag d'image (déjà poussé sur GHCR, pas de rebuild)
+        run: |
+          echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Déployer sur K3s (namespace collector-prod)
         run: |
@@ -493,31 +519,35 @@ jobs:
           helm upgrade --install collector infra/helm/collector \
             -f infra/helm/collector/values-prod.yaml \
             --namespace collector-prod --create-namespace \
-            --set global.imageTag=${{ needs.build-and-push.outputs.tag }} \
+            --set global.imageTag=${{ steps.tag.outputs.tag }} \
             --set-string infisical.machineIdentity.clientId=${{ secrets.INFISICAL_CLIENT_ID }} \
             --set-string infisical.machineIdentity.clientSecret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
             --kubeconfig kubeconfig.yaml \
             --wait --timeout 5m
 
-  # Les deux jobs ci-dessous tournent EN PARALLÈLE des deploy-dev / deploy-uat / deploy-prod : mêmes `needs`
-  # (build-and-push, donc tous les tests et scans verts), mêmes branches et mêmes environnements GitHub
-  # (develop -> dev, uat -> uat, master -> production : l'approbation d'un reviewer est donc exigée sur
-  # master, et elle se valide en une fois avec celle de deploy-prod).
+  # Les jobs ci-dessous tournent EN PARALLÈLE de deploy-dev / deploy-uat / deploy-prod : mêmes conditions
+  # de déclenchement (push develop -> dev, push master -> uat, release publiée -> production — reviewer
+  # requis, se valide en une fois avec celui de deploy-prod), sauf que needs: build-and-push ne les gate
+  # QUE sur push (ce job ne tourne pas sur release, voir plus haut) : le "always() && ... result !=
+  # failure/cancelled" neutralise le skip en cascade que provoquerait sinon un needs sur un job skippé.
 
   # 4 jobs indépendants (un par chart) plutôt qu'un seul "déploiement monitoring" : aucune dépendance
   # réelle entre eux (Service/NetworkPolicy résolvent même si le pod visé n'est pas encore prêt), et
   # un chart qui échoue (ex: timeout readiness) n'empêche plus les 3 autres de se déployer ni de voir
   # clairement lequel est en cause. Chacun garde sa propre stack pour les 3 environnements (RAM limitée),
-  # redéployée à chaque push comme l'application : modifier le chart (config, dashboards) puis pousser
-  # suffit, les pods redémarrent seuls quand leur config change (annotation checksum).
+  # redéployée à chaque push/release comme l'application : modifier le chart (config, dashboards) puis
+  # pousser suffit, les pods redémarrent seuls quand leur config change (annotation checksum).
   deploy-prometheus:
     name: Déploiement Prometheus
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
     needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
+      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
     runs-on: self-hosted
-    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
-    # Un push sur develop et un sur master rapprochés lanceraient deux `helm upgrade` simultanés sur la
-    # même release (« another operation is in progress ») : on les met en file.
+    environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
+    # Un push sur develop et un sur master (ou une release) rapprochés lanceraient deux `helm upgrade`
+    # simultanés sur la même release Helm (« another operation is in progress ») : on les met en file.
     concurrency:
       group: deploy-prometheus
       cancel-in-progress: false
@@ -535,10 +565,13 @@ jobs:
 
   deploy-kube-state-metrics:
     name: Déploiement kube-state-metrics
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
     needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
+      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
     runs-on: self-hosted
-    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
       group: deploy-kube-state-metrics
       cancel-in-progress: false
@@ -556,10 +589,13 @@ jobs:
 
   deploy-headlamp:
     name: Déploiement Headlamp
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
     needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
+      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
     runs-on: self-hosted
-    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
       group: deploy-headlamp
       cancel-in-progress: false
@@ -577,10 +613,13 @@ jobs:
 
   deploy-grafana:
     name: Déploiement Grafana
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
     needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
+      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
     runs-on: self-hosted
-    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
       group: deploy-grafana
       cancel-in-progress: false
@@ -600,24 +639,27 @@ jobs:
 
   deploy-airflow:
     name: Déploiement DAGs Airflow
-    # develop -> instance dev, uat -> instance dev aussi (dev et uat partagent la même instance Airflow,
-    # infra/airflow/environments/dev.json), master -> instance prod. Le dernier push sur develop/uat l'emporte
-    # sur l'instance dev partagée.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/master')
+    # develop -> instance dev, master -> instance dev aussi (dev et uat partagent la même instance
+    # Airflow, infra/airflow/environments/dev.json), release (prod) -> instance prod. Le dernier push
+    # sur develop/master l'emporte sur l'instance dev partagée.
     needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
+      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'master' && 'production' || github.ref_name == 'uat' && 'uat' || 'dev' }}
+    environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
-      group: deploy-airflow-${{ github.ref_name == 'master' && 'prod' || 'dev' }}
+      group: deploy-airflow-${{ github.event_name == 'release' && 'prod' || 'dev' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Installer sshpass
         run: sudo apt-get install -y sshpass
-      - name: Déployer les DAGs (instance ${{ github.ref_name == 'master' && 'prod' || 'dev' }})
+      - name: Déployer les DAGs (instance ${{ github.event_name == 'release' && 'prod' || 'dev' }})
         env:
           AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
           AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
           AIRFLOW_SSH_PASSWORD: ${{ secrets.AIRFLOW_SSH_PASSWORD }}
           AIRFLOW_SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
-        run: infra/airflow/deploy-dags.sh ${{ github.ref_name == 'master' && 'prod' || 'dev' }}
+        run: infra/airflow/deploy-dags.sh ${{ github.event_name == 'release' && 'prod' || 'dev' }}
