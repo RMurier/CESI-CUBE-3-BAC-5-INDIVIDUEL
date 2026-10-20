@@ -15,6 +15,9 @@ spec:
         # Dashboards ou provisioning modifiés dans Git -> le pod redémarre au déploiement suivant.
         checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
     spec:
+      # Grafana n'appelle jamais l'API Kubernetes (datasources : Prometheus + Infisical uniquement) : pas besoin
+      # du jeton de ServiceAccount monté par défaut.
+      automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, runAsUser: 472, fsGroup: 472 }
       containers:
         - name: grafana

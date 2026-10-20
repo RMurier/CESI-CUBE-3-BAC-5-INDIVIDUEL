@@ -8,8 +8,8 @@ watchedNamespaces:
 resources: [pods, deployments, replicasets, horizontalpodautoscalers]
 
 resourcesRequests:
-  requests: { cpu: 20m, memory: 48Mi }
-  limits: { cpu: 200m, memory: 128Mi }
+  requests: { cpu: 20m, memory: 48Mi, ephemeral-storage: 32Mi }
+  limits: { cpu: 200m, memory: 128Mi, ephemeral-storage: 128Mi }
 
 # Seul pod autorisé à lire les métriques.
 allowedClientApp: prometheus

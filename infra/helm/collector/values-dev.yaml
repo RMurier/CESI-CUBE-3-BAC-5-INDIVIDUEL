@@ -22,5 +22,5 @@ services:
       targetCpuUtilization: 70
       scaleDownStabilizationSeconds: 60
     resources:
-      requests: { cpu: 50m, memory: 192Mi }
-      limits: { cpu: 250m, memory: 384Mi }
+      requests: { cpu: 50m, memory: 192Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 250m, memory: 384Mi, ephemeral-storage: 256Mi }

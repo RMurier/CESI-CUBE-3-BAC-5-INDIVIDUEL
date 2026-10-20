@@ -48,6 +48,9 @@ spec:
       labels: { app.kubernetes.io/name: kube-state-metrics, app.kubernetes.io/part-of: collector-monitoring }
     spec:
       serviceAccountName: kube-state-metrics
+      # Jeton nécessaire : kube-state-metrics appelle l'API Kubernetes (list/watch) avec les droits lecture
+      # seule ci-dessus — explicite plutôt que de dépendre du comportement par défaut.
+      automountServiceAccountToken: true
       securityContext: { runAsNonRoot: true, runAsUser: 65534 }
       containers:
         - name: kube-state-metrics

@@ -4,8 +4,8 @@ image: ghcr.io/headlamp-k8s/headlamp:v0.26.0
 host: headlamp.collector.romainmurier.com
 
 resources:
-  requests: { cpu: 20m, memory: 64Mi }
-  limits: { cpu: 200m, memory: 192Mi }
+  requests: { cpu: 20m, memory: 64Mi, ephemeral-storage: 64Mi }
+  limits: { cpu: 200m, memory: 192Mi, ephemeral-storage: 256Mi }
 
 # Restriction réseau optionnelle (CIDR autorisés à joindre l'interface, ex. ["203.0.113.10/32"]).
 # Vide = joignable depuis Internet, protégé uniquement par le jeton ci-dessous. Nécessite Traefik v3 (ipAllowList).

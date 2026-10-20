@@ -27,8 +27,8 @@ services:
       pathPrefix: /api/identity
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   catalog:
     image: collector-catalog
@@ -42,8 +42,8 @@ services:
       pathPrefix: /api/catalog
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   chat:
     image: collector-chat
@@ -56,8 +56,8 @@ services:
       pathPrefix: /hubs/chat
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   notification:
     image: collector-notification
@@ -70,8 +70,8 @@ services:
       pathPrefix: /api/notifications
       stripPrefix: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   moderation:
     image: collector-moderation
@@ -84,8 +84,8 @@ services:
       pathPrefix: ""
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
   frontend:
     image: collector-frontend
@@ -97,22 +97,22 @@ services:
       pathPrefix: /
       stripPrefix: false
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits: { cpu: 500m, memory: 512Mi }
+      requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi, ephemeral-storage: 256Mi }
 
 rabbitmq:
   image: "rabbitmq:4-management"
   storage: 2Gi
   resources:
-    requests: { cpu: 100m, memory: 512Mi }
-    limits: { cpu: 500m, memory: 1Gi }
+    requests: { cpu: 100m, memory: 512Mi, ephemeral-storage: 128Mi }
+    limits: { cpu: 500m, memory: 1Gi, ephemeral-storage: 512Mi }
 
 sqlServer:
   image: "mcr.microsoft.com/mssql/server:2022-latest"
   storage: 5Gi
   resources:
-    requests: { cpu: 250m, memory: 2Gi }
-    limits: { cpu: "1", memory: 2Gi }
+    requests: { cpu: 250m, memory: 2Gi, ephemeral-storage: 256Mi }
+    limits: { cpu: "1", memory: 2Gi, ephemeral-storage: 1Gi }
 
 # Restriction réseau des routes /internal/* (appelées par Airflow). Vide = pas de restriction réseau
 # (la clé X-Maintenance-Key reste exigée). Renseigner l'IP publique du serveur Airflow en CIDR, ex :

@@ -6,8 +6,8 @@ host: grafana.collector.romainmurier.com
 prometheusUrl: http://prometheus:9090
 
 resources:
-  requests: { cpu: 50m, memory: 128Mi }
-  limits: { cpu: 300m, memory: 256Mi }
+  requests: { cpu: 50m, memory: 128Mi, ephemeral-storage: 128Mi }
+  limits: { cpu: 300m, memory: 256Mi, ephemeral-storage: 512Mi }
 
 # Secrets dans Infisical (jamais dans le dépôt), synchronisés vers un Secret K8s par l'Infisical Secrets
 # Operator déjà installé pour l'application. Clés attendues dans le projet/scope ci-dessous :

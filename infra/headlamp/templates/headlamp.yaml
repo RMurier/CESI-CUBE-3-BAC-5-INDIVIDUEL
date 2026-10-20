@@ -45,6 +45,9 @@ spec:
       labels: { app.kubernetes.io/name: headlamp, app.kubernetes.io/part-of: collector-monitoring }
     spec:
       serviceAccountName: headlamp
+      # Le jeton de CE compte n'est jamais monté automatiquement dans le pod : il n'est distribué que via le
+      # Secret headlamp-viewer-token ci-dessus, collé manuellement par l'utilisateur à la connexion.
+      automountServiceAccountToken: false
       containers:
         - name: headlamp
           image: {{ .Values.image }}

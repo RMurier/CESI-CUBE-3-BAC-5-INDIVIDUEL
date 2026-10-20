@@ -17,6 +17,9 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: prometheus
+      # Jeton nécessaire : Prometheus appelle l'API Kubernetes pour la découverte de services avec les droits
+      # lecture seule définis dans rbac.yaml — explicite plutôt que de dépendre du comportement par défaut.
+      automountServiceAccountToken: true
       securityContext: { runAsNonRoot: true, runAsUser: 65534, fsGroup: 65534 }
       containers:
         - name: prometheus

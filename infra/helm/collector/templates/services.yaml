@@ -27,6 +27,8 @@ spec:
         prometheus.io/port: {{ $root.Values.metrics.port | quote }}
       {{- end }}
     spec:
+      # Aucun de ces services n'appelle l'API Kubernetes : pas besoin du jeton de ServiceAccount monté par défaut.
+      automountServiceAccountToken: false
       containers:
         - name: {{ $name }}
           image: {{ include "collector.image" (dict "root" $root "image" $svc.image) }}

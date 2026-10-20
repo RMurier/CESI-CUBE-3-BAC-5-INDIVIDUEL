@@ -11,8 +11,10 @@ scrapeInterval: 30s
 
 # cAdvisor + kube-state-metrics sur 3 environnements : ~40 000 séries, d'où une marge mémoire supérieure.
 resources:
-  requests: { cpu: 100m, memory: 256Mi }
-  limits: { cpu: 500m, memory: 768Mi }
+  requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 256Mi }
+  # ephemeral-storage couvre aussi le volume emptyDir "data" (sizeLimit 2Gi, voir deployment.yaml) : marge
+  # au-delà de 2Gi pour la couche writable + logs.
+  limits: { cpu: 500m, memory: 768Mi, ephemeral-storage: 2560Mi }
 
 # Seul pod autorisé à interroger Prometheus (étiquette app.kubernetes.io/name de Grafana).
 allowedClientApp: grafana
