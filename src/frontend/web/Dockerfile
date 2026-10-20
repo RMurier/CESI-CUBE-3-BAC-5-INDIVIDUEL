@@ -1,7 +1,7 @@
 # Build context attendu : la racine du repo (cohérence avec les Dockerfiles des services .NET)
 # docker build -f src/frontend/web/Dockerfile -t collector-frontend .
 
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY src/frontend/web/package.json src/frontend/web/package-lock.json ./
 # --ignore-scripts : aucun script d'installation (supply chain). Seuls fsevents (macOS) et
@@ -9,7 +9,7 @@ COPY src/frontend/web/package.json src/frontend/web/package-lock.json ./
 # aucun n'est nécessaire à "next build".
 RUN npm ci --ignore-scripts
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/frontend/web/ .
@@ -23,7 +23,7 @@ ENV NEXT_PUBLIC_IDENTITY_API_URL=$NEXT_PUBLIC_IDENTITY_API_URL \
     NEXT_PUBLIC_NOTIFICATION_API_URL=$NEXT_PUBLIC_NOTIFICATION_API_URL
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
