@@ -48,8 +48,37 @@ permissions:
   packages: write
 
 jobs:
+  # Détecte quels répertoires une PR touche, pour ne pas lancer les tests/Sonar/CodeQL backend sur une
+  # PR qui ne change que le frontend (et vice versa) — typiquement les PR Dependabot (un paquet npm
+  # bumpé ne justifie pas de refaire tourner Testcontainers + Sonar côté .NET). Sur un push (jamais
+  # une PR Dependabot : build-and-push/déploiements sont déjà filtrés sur github.event_name == 'push'),
+  # chaque job ci-dessous tourne TOUJOURS, filtré ou pas — ce job ne change donc rien au comportement
+  # de déploiement actuel, seulement le volume de jobs sur les PR.
+  changes:
+    name: Détection des fichiers modifiés
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/services/**'
+              - 'src/shared/**'
+              - 'src/Collector.sln'
+              - 'src/Directory.Build.props'
+              - '.runsettings'
+              - 'global.json'
+            frontend:
+              - 'src/frontend/web/**'
+
   test-backend-unit:
     name: Tests backend (.NET) — unitaires
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +101,8 @@ jobs:
 
   test-backend-integration:
     name: Tests backend (.NET) — intégration (Testcontainers)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +128,8 @@ jobs:
 
   test-frontend:
     name: Tests frontend (Next.js)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -117,7 +150,16 @@ jobs:
 
   sonar:
     name: Analyse SonarQube (backend + frontend)
-    needs: [test-backend-unit, test-backend-integration, test-frontend]
+    needs: [changes, test-backend-unit, test-backend-integration, test-frontend]
+    # Un job needs skippé (via son propre if) compte comme "pas success" pour le if implicite d'un
+    # job dépendant, qui le skipperait donc en cascade — on neutralise ça avec always() et on vérifie
+    # nous-mêmes qu'aucun des 3 n'a échoué (un skip est accepté, un échec ou une annulation non).
+    if: >
+      always() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') &&
+      needs.test-backend-unit.result != 'failure' && needs.test-backend-unit.result != 'cancelled' &&
+      needs.test-backend-integration.result != 'failure' && needs.test-backend-integration.result != 'cancelled' &&
+      needs.test-frontend.result != 'failure' && needs.test-frontend.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -257,6 +299,8 @@ jobs:
 
   vulnerabilities:
     name: Scan de vulnérabilités (dépendances)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -13,8 +13,36 @@ permissions:
   security-events: write
 
 jobs:
+  # Même logique que "changes" dans pipeline.yml : sur une PR, n'analyse que le langage dont les
+  # fichiers ont changé (évite p. ex. l'analyse csharp sur un bump npm). Sur push/schedule, inchangé.
+  changes:
+    name: Détection des fichiers modifiés
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/services/**'
+              - 'src/shared/**'
+              - 'src/Collector.sln'
+              - 'src/Directory.Build.props'
+              - '.runsettings'
+              - 'global.json'
+            frontend:
+              - 'src/frontend/web/**'
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: changes
+    if: >
+      github.event_name != 'pull_request' ||
+      (matrix.language == 'csharp' && needs.changes.outputs.backend == 'true') ||
+      (matrix.language == 'javascript-typescript' && needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

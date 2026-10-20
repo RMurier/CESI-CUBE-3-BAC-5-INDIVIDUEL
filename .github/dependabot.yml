@@ -1,4 +1,8 @@
 version: 2
+# Chaque entrée groupe TOUTES ses mises à jour en 1 seul PR (patterns: ["*"]) au lieu d'un PR par
+# paquet : avant, une semaine normale pouvait produire une dizaine de PR distinctes (ex. 5 paquets npm
+# en retard = 5 PR), chacune déclenchant le pipeline complet (tests + Sonar + CodeQL, ~7-8 jobs) même
+# pour un simple bump de patch. Avec le groupement, au plus 1 PR par écosystème/répertoire ci-dessous.
 updates:
   - package-ecosystem: nuget
     directory: /src
@@ -6,22 +10,34 @@ updates:
     open-pull-requests-limit: 5
     target-branch: develop
     groups:
-      microsoft:
-        patterns: ["Microsoft.*", "System.*"]
+      nuget:
+        patterns: ["*"]
   - package-ecosystem: npm
     directory: /src/frontend/web
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     target-branch: develop
+    groups:
+      npm:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /src/services/Catalog/Catalog.Api
     schedule: { interval: weekly }
     target-branch: develop
+    groups:
+      docker:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /src/frontend/web
     schedule: { interval: weekly }
     target-branch: develop
+    groups:
+      docker:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
     target-branch: develop
+    groups:
+      actions:
+        patterns: ["*"]
