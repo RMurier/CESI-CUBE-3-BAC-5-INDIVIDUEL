@@ -15,34 +15,40 @@ sqlServerEdition: Developer
 infisical:
   environmentSlug: prod
 
+# requests.cpu alignées sur la même logique que values.yaml (base) : dev/uat/prod partagent le MÊME
+# nœud k3s (4 cœurs), donc c'est la somme des requests de TOUTE la machine qui compte pour le
+# scheduling, pas l'usage réel par pod. Les anciennes valeurs (200m/150m × replicas:2 sur 3 services)
+# réservaient à elles seules 1,9 cœur rien que pour prod — combiné à dev+uat, le 1er déploiement prod
+# n'a jamais pu scheduler ses StatefulSet SQL (FailedScheduling: Insufficient cpu). Limits inchangées
+# (c'est le vrai plafond en cas de pic de charge, pas la réservation de base).
 services:
   identity:
     replicas: 2
     resources:
-      requests: { cpu: 200m, memory: 384Mi }
+      requests: { cpu: 50m, memory: 384Mi }
       limits: { cpu: "1", memory: 768Mi }
   catalog:
     replicas: 2
     resources:
-      requests: { cpu: 200m, memory: 384Mi }
+      requests: { cpu: 50m, memory: 384Mi }
       limits: { cpu: "1", memory: 768Mi }
   chat:
     replicas: 2
     resources:
-      requests: { cpu: 200m, memory: 384Mi }
+      requests: { cpu: 50m, memory: 384Mi }
       limits: { cpu: "1", memory: 768Mi }
   notification:
     replicas: 1
     resources:
-      requests: { cpu: 150m, memory: 256Mi }
+      requests: { cpu: 50m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }
   moderation:
     replicas: 1
     resources:
-      requests: { cpu: 150m, memory: 256Mi }
+      requests: { cpu: 50m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }
   frontend:
     replicas: 2
     resources:
-      requests: { cpu: 200m, memory: 384Mi }
+      requests: { cpu: 50m, memory: 384Mi }
       limits: { cpu: "1", memory: 768Mi }
