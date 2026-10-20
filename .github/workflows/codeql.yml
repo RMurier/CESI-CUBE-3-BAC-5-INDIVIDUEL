@@ -45,10 +45,12 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     needs: changes
-    if: >
-      github.event_name != 'pull_request' ||
-      (matrix.language == 'csharp' && needs.changes.outputs.backend == 'true') ||
-      (matrix.language == 'javascript-typescript' && needs.changes.outputs.frontend == 'true')
+    # Simplifié volontairement : pas de distinction par langage ici (contrairement à pipeline.yml)
+    # pour éviter de combiner matrix.* et needs.* dans la même expression de if au niveau job, qui a
+    # fait échouer le parsing du workflow par GitHub (aucun job créé, erreur "Invalid workflow file"
+    # sans détail exploitable). Moins précis (les deux langages tournent dès qu'un seul a changé),
+    # mais ça couvre déjà le cas visé : rien ne tourne sur un bump github-actions/docker seul.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
