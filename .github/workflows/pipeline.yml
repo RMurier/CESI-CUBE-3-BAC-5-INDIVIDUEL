@@ -61,6 +61,12 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
+      # paths-filter calcule un diff via git localement (sur push, il n'y a pas de PR dont l'API
+      # fournirait la liste des fichiers) : il faut donc un checkout avec historique, pas seulement
+      # le dernier commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dorny/paths-filter@v3
         id: filter
         with:
