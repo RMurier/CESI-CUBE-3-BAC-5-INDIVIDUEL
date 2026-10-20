@@ -152,7 +152,7 @@ POC lui-même**, pas seulement sur le papier (ex: HTTPS/TLS + JWT, ou JWT + scan
 | Paiement | **Stripe Checkout hébergé** en mode test + **Stripe Connect Express** : *destination charge* avec `application_fee_amount`. La commission de 5 % (calculée sur article + port) est **figée et persistée** sur la commande (`Order.CommissionAmount`) et réellement retenue par la plateforme ; le net part sur le compte Connect du vendeur. Un vendeur sans compte Connect actif ne peut pas vendre. Code derrière `IPaymentGateway` (testable sans réseau) | 2026-10-20 | Aucune donnée de carte ni bancaire chez Collector (périmètre PCI minimal), commission réellement prélevée même en démo (exigence utilisateur) |
 | Traitements récurrents | **Airflow existant** de l'utilisateur (aucune nouvelle instance) : endpoints `/internal/*` protégés par `X-Maintenance-Key` (404 si clé absente) appelés par 3 DAGs (`collector_expire_pending_orders`, `collector_purge_refresh_tokens`, `collector_commission_report`), pas de scheduler dans les services. Convention des dépôts `{app}-airflow` : fichiers à plat préfixés `collector_`, un fichier par DAG. dev **et** uat partagent l'instance dev (`/opt/airflow-dev`), une tâche par environnement (`expand`), prod sur `/opt/airflow-prod` | 2026-10-20 | Un seul fichier par DAG pour 2 environnements, aucune collision avec omnia/porty (préfixe), l'instance dev ne peut pas atteindre la prod |
 | Stack de monitoring | **Prometheus + kube-state-metrics + Grafana + Headlamp**, un chart par dossier (`infra/prometheus`, `infra/kube-state-metrics`, `infra/grafana`, `infra/headlamp`), un seul namespace `collector-monitoring` pour les 3 environnements. **Pas d'ArgoCD** (le pipeline fait déjà `helm upgrade`), pas de Loki (logs = Omnia), pas d'Alertmanager. Mot de passe admin Grafana dans Infisical (`/monitoring`). Headlamp en lecture seule (jeton `view`) | 2026-10-20 | RAM limitée sur un serveur unique ; voir les pods se créer pendant les tests de charge sans outil GitOps |
-| Déploiements annexes | Monitoring (`deploy-monitoring`) et DAGs Airflow (`deploy-airflow`) se déploient **en parallèle** de `deploy-dev/uat/prod`, avec les mêmes conditions : `needs: build-and-push`, mêmes branches, mêmes environnements GitHub (approbation « production » sur master) | 2026-10-20 | « Mis à jour à chaque push comme l'application » (exigence utilisateur) |
+| Déploiements annexes | Monitoring (`deploy-prometheus`, `deploy-kube-state-metrics`, `deploy-headlamp`, `deploy-grafana` — un job par chart) et DAGs Airflow (`deploy-airflow`) se déploient **en parallèle** de `deploy-dev/uat/prod` et entre eux, avec les mêmes conditions : `needs: build-and-push`, mêmes branches, mêmes environnements GitHub (approbation « production » sur master) | 2026-10-20 | « Mis à jour à chaque push comme l'application » (exigence utilisateur) ; scindé en 4 jobs (un seul job monitoring jugé trop gros) |
 | Interface de test de charge | **Serveur local Node sans dépendance** (`load-tests/ui`) : k6 sur 1 à N environnements en parallèle, logs en direct, panneau pods/HPA via kubectl, envoi des métriques k6 vers Prometheus (remote-write via port-forward) | 2026-10-20 | Démo configurable sans ligne de commande ; prod plafonnée et confirmée |
 
 ---
@@ -319,11 +319,13 @@ en échec bloque tout déploiement, pas juste un warning affiché à côté. Tou
 tournent sur PR et push ; `build-and-push` et les déploiements ne tournent que sur push (jamais
 sur une PR).
 
-En plus des trois `deploy-dev/uat/prod`, deux jobs tournent **en parallèle d'eux avec exactement les mêmes
-conditions** (`needs: build-and-push`, mêmes branches, mêmes environnements GitHub, donc approbation
-« production » sur master) : `deploy-monitoring` (Prometheus, kube-state-metrics, Headlamp, Grafana,
-dans le namespace `collector-monitoring`) et `deploy-airflow` (DAGs vers l'instance dev pour develop/uat, prod
-pour master, voir `infra/airflow/README.md`). Chaque push modifiant un chart de monitoring ou un DAG est donc
+En plus des trois `deploy-dev/uat/prod`, cinq jobs tournent **en parallèle d'eux (et entre eux) avec
+exactement les mêmes conditions** (`needs: build-and-push`, mêmes branches, mêmes environnements GitHub,
+donc approbation « production » sur master) : `deploy-prometheus`, `deploy-kube-state-metrics`,
+`deploy-headlamp`, `deploy-grafana` (un par chart, tous dans le namespace `collector-monitoring` —
+séparés pour qu'un timeout readiness sur l'un n'empêche pas les 3 autres et qu'on voie immédiatement
+lequel est en cause) et `deploy-airflow` (DAGs vers l'instance dev pour develop/uat, prod pour master,
+voir `infra/airflow/README.md`). Chaque push modifiant un chart de monitoring ou un DAG est donc
 redéployé sans action manuelle ; les pods redémarrent seuls quand leur config change (annotation `checksum`).
 Hors `pipeline.yml` : `codeql.yml` (analyse statique C# et TypeScript) et Dependabot (NuGet, npm, Docker,
 Actions). Le job `build-and-push` publie aussi un SBOM CycloneDX par image.
@@ -346,7 +348,7 @@ flowchart TD
     G -->|push develop| H["helm upgrade --install<br/>namespace collector-dev<br/>dev.collector.romainmurier.com"]
     G -->|push uat| I["helm upgrade --install<br/>namespace collector-uat<br/>uat.collector.romainmurier.com"]
     G -->|push master| J["Environnement GitHub 'production'<br/>(reviewer requis) → namespace collector-prod<br/>collector.romainmurier.com"]
-    F --> K["deploy-monitoring (en parallèle, mêmes conditions)<br/>Prometheus + kube-state-metrics + Headlamp + Grafana<br/>namespace collector-monitoring"]
+    F --> K["deploy-prometheus / deploy-kube-state-metrics /<br/>deploy-headlamp / deploy-grafana<br/>(4 jobs en parallèle, mêmes conditions)<br/>namespace collector-monitoring"]
     F --> L["deploy-airflow (en parallèle, mêmes conditions)<br/>develop/uat → instance dev · master → instance prod<br/>dags collector_* par SSH"]
 ```
 

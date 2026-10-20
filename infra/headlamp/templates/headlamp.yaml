@@ -45,9 +45,10 @@ spec:
       labels: { app.kubernetes.io/name: headlamp, app.kubernetes.io/part-of: collector-monitoring }
     spec:
       serviceAccountName: headlamp
-      # Le jeton de CE compte n'est jamais monté automatiquement dans le pod : il n'est distribué que via le
-      # Secret headlamp-viewer-token ci-dessus, collé manuellement par l'utilisateur à la connexion.
-      automountServiceAccountToken: false
+      # automountServiceAccountToken reste au défaut (true) : le flag -in-cluster résout sa config via
+      # le volume projeté standard (token + ca.crt), pas seulement pour le jeton collé manuellement par
+      # l'utilisateur à la connexion — le désactiver a empêché le pod de devenir ready (readiness en
+      # échec constaté en CD). Flag Sonar correspondant traité en Won't Fix sur le dashboard.
       containers:
         - name: headlamp
           image: {{ .Values.image }}
