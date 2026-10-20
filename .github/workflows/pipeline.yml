@@ -128,7 +128,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - uses: actions/setup-java@v4 # requis par le scanner Sonar (JVM)
+      - uses: actions/setup-java@v6 # requis par le scanner Sonar (JVM)
         with:
           distribution: temurin
           java-version: "21"
