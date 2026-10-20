@@ -391,7 +391,7 @@ jobs:
     environment: dev
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Déployer sur K3s (namespace collector-dev)
         run: |
@@ -413,7 +413,7 @@ jobs:
     environment: uat
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Déployer sur K3s (namespace collector-uat)
         run: |
@@ -435,7 +435,7 @@ jobs:
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Déployer sur K3s (namespace collector-prod)
         run: |
@@ -473,7 +473,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/prometheus
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -494,7 +494,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/kube-state-metrics
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -515,7 +515,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/headlamp
       - name: Déployer (namespace collector-monitoring)
         run: |
@@ -536,7 +536,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint infra/grafana --set infisical.machineIdentity.clientId=ci --set infisical.machineIdentity.clientSecret=ci
       - name: Déployer (namespace collector-monitoring)
         run: |
