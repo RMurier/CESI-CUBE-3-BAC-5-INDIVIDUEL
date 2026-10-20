@@ -117,8 +117,11 @@ rabbitmq:
 sqlServer:
   image: "mcr.microsoft.com/mssql/server:2022-latest"
   storage: 5Gi
+  # memory.requests abaissée à 1Gi (observé ~800-900Mi par instance à vide, kubectl top pods) : limits
+  # reste à 2Gi, donc rien ne change côté usage réel autorisé (l'enforcement cgroup se base sur
+  # limits, pas requests) — seule la réservation qui bloquait le scheduling K8s est réduite.
   resources:
-    requests: { cpu: 100m, memory: 2Gi, ephemeral-storage: 256Mi }
+    requests: { cpu: 100m, memory: 1Gi, ephemeral-storage: 256Mi }
     limits: { cpu: "1", memory: 2Gi, ephemeral-storage: 1Gi }
 
 # Restriction réseau des routes /internal/* (appelées par Airflow). Vide = pas de restriction réseau
