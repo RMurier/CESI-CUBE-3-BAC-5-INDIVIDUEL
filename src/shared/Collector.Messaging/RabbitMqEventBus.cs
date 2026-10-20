@@ -21,6 +21,13 @@ public sealed class RabbitMqEventBus : IEventBus, IAsyncDisposable
         _options = options.Value;
     }
 
+    /// <summary>Seam de test : évite la vraie connexion RabbitMQ (voir RabbitMqEventBusTests).</summary>
+    internal RabbitMqEventBus(IOptions<RabbitMqOptions> options, IChannel testChannel)
+    {
+        _options = options.Value;
+        _channel = testChannel;
+    }
+
     public async Task PublishAsync<TEvent>(TEvent message, CancellationToken cancellationToken = default)
         where TEvent : class
     {

@@ -19,18 +19,42 @@ public sealed class StripeOptions
 /// Stripe Checkout hébergé : la saisie de carte se fait sur la page Stripe, aucune donnée de carte ne
 /// transite ni n'est stockée chez Collector (périmètre PCI DSS minimal, SAQ A).
 /// </summary>
-public sealed class StripePaymentGateway(IOptions<StripeOptions> options) : IPaymentGateway
+public sealed class StripePaymentGateway : IPaymentGateway
 {
     private const string Currency = "eur";
-    private readonly StripeOptions _options = options.Value;
-    private readonly StripeClient _client = new(options.Value.SecretKey);
+    private readonly StripeOptions _options;
+    private readonly SessionService _sessionService;
+    private readonly AccountService _accountService;
+    private readonly AccountLinkService _accountLinkService;
+
+    public StripePaymentGateway(IOptions<StripeOptions> options)
+    {
+        _options = options.Value;
+        var client = new StripeClient(_options.SecretKey);
+        _sessionService = new SessionService(client);
+        _accountService = new AccountService(client);
+        _accountLinkService = new AccountLinkService(client);
+    }
+
+    /// <summary>Seam de test : substitue les services Stripe (voir StripePaymentGatewayTests).</summary>
+    internal StripePaymentGateway(
+        IOptions<StripeOptions> options,
+        SessionService sessionService,
+        AccountService accountService,
+        AccountLinkService accountLinkService)
+    {
+        _options = options.Value;
+        _sessionService = sessionService;
+        _accountService = accountService;
+        _accountLinkService = accountLinkService;
+    }
 
     public async Task<CheckoutSessionResult> CreateCheckoutSessionAsync(CheckoutRequest request, CancellationToken cancellationToken)
     {
         var lineItems = new List<SessionLineItemOptions> { LineItem(request.ArticleTitle, request.ItemPrice) };
         if (request.ShippingCost > 0) lineItems.Add(LineItem("Frais de port", request.ShippingCost));
 
-        var session = await new SessionService(_client).CreateAsync(new SessionCreateOptions
+        var session = await _sessionService.CreateAsync(new SessionCreateOptions
         {
             Mode = "payment",
             LineItems = lineItems,
@@ -54,7 +78,7 @@ public sealed class StripePaymentGateway(IOptions<StripeOptions> options) : IPay
 
     public async Task<string> CreateSellerAccountAsync(Guid sellerId, CancellationToken cancellationToken)
     {
-        var account = await new AccountService(_client).CreateAsync(new AccountCreateOptions
+        var account = await _accountService.CreateAsync(new AccountCreateOptions
         {
             Type = "express",
             Country = "FR",
@@ -70,7 +94,7 @@ public sealed class StripePaymentGateway(IOptions<StripeOptions> options) : IPay
 
     public async Task<string> CreateOnboardingLinkAsync(string accountId, string returnUrl, string refreshUrl, CancellationToken cancellationToken)
     {
-        var link = await new AccountLinkService(_client).CreateAsync(new AccountLinkCreateOptions
+        var link = await _accountLinkService.CreateAsync(new AccountLinkCreateOptions
         {
             Account = accountId,
             Type = "account_onboarding",
@@ -82,7 +106,7 @@ public sealed class StripePaymentGateway(IOptions<StripeOptions> options) : IPay
 
     public async Task<bool> IsSellerAccountReadyAsync(string accountId, CancellationToken cancellationToken)
     {
-        var account = await new AccountService(_client).GetAsync(accountId, cancellationToken: cancellationToken);
+        var account = await _accountService.GetAsync(accountId, cancellationToken: cancellationToken);
         return account.Capabilities?.Transfers == "active";
     }
 

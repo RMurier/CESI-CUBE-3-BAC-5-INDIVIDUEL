@@ -13,4 +13,8 @@
     <ProjectReference Include="..\..\..\shared\Collector.Messaging\Collector.Messaging.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Catalog.Api.Tests" />
+  </ItemGroup>
+
 </Project>

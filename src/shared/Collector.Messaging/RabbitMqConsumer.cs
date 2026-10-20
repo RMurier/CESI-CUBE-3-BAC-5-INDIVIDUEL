@@ -59,30 +59,36 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
         await channel.BasicQosAsync(0, prefetchCount: 10, global: false, cancellationToken: stoppingToken);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
-        consumer.ReceivedAsync += async (_, ea) =>
-        {
-            try
-            {
-                var json = Encoding.UTF8.GetString(ea.Body.Span);
-                var message = JsonSerializer.Deserialize<TEvent>(json);
-                if (message is not null)
-                {
-                    using var scope = _scopeFactory.CreateScope();
-                    await HandleAsync(message, scope.ServiceProvider, stoppingToken);
-                }
-
-                await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue}", routingKey, _queueName);
-                await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
-            }
-        };
+        consumer.ReceivedAsync += (_, ea) => HandleDeliveryAsync(channel, ea, routingKey, stoppingToken);
 
         await channel.BasicConsumeAsync(_queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
 
         // Garde le BackgroundService vivant tant que le service n'est pas arrêté.
         await Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Traite une livraison : désérialise, délègue à <see cref="HandleAsync"/>, ack/nack. Extrait de
+    /// <see cref="ExecuteAsync"/> pour être testable sans connexion RabbitMQ réelle (voir RabbitMqConsumerTests).
+    /// </summary>
+    internal async Task HandleDeliveryAsync(IChannel channel, BasicDeliverEventArgs ea, string routingKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = Encoding.UTF8.GetString(ea.Body.Span);
+            var message = JsonSerializer.Deserialize<TEvent>(json);
+            if (message is not null)
+            {
+                using var scope = _scopeFactory.CreateScope();
+                await HandleAsync(message, scope.ServiceProvider, cancellationToken);
+            }
+
+            await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue}", routingKey, _queueName);
+            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: cancellationToken);
+        }
     }
 }

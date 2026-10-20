@@ -43,6 +43,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Moderation", "Moderation", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Moderation.Api.Tests", "services\Moderation\Moderation.Api.Tests\Moderation.Api.Tests.csproj", "{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Collector.Messaging.Tests", "shared\Collector.Messaging.Tests\Collector.Messaging.Tests.csproj", "{2599D447-E251-40E5-AEA4-FC74AA302F61}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -209,6 +211,18 @@ Global
 		{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7}.Release|x64.Build.0 = Release|Any CPU
 		{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7}.Release|x86.ActiveCfg = Release|Any CPU
 		{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7}.Release|x86.Build.0 = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|x64.Build.0 = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Debug|x86.Build.0 = Debug|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|x64.ActiveCfg = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|x64.Build.0 = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|x86.ActiveCfg = Release|Any CPU
+		{2599D447-E251-40E5-AEA4-FC74AA302F61}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -225,5 +239,6 @@ Global
 		{D4E81A56-8596-4755-BAEC-AA2693938667} = {06470F13-D646-4954-ED4A-FA216054436A}
 		{518B12B6-4C57-08E4-5168-0FC23EA394FD} = {5854FF58-B8C5-05C6-5BF2-ACE42193F22B}
 		{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7} = {518B12B6-4C57-08E4-5168-0FC23EA394FD}
+		{2599D447-E251-40E5-AEA4-FC74AA302F61} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
 	EndGlobalSection
 EndGlobal
