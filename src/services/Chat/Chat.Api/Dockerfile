@@ -6,9 +6,11 @@ WORKDIR /src
 
 COPY global.json .
 COPY src/Directory.Build.props src/Directory.Build.props
+COPY src/shared/Collector.Observability/Collector.Observability.csproj src/shared/Collector.Observability/
 COPY src/services/Chat/Chat.Api/Chat.Api.csproj src/services/Chat/Chat.Api/
 RUN dotnet restore src/services/Chat/Chat.Api/Chat.Api.csproj
 
+COPY src/shared/Collector.Observability/ src/shared/Collector.Observability/
 COPY src/services/Chat/Chat.Api/ src/services/Chat/Chat.Api/
 RUN dotnet publish src/services/Chat/Chat.Api/Chat.Api.csproj -c Release -o /app --no-restore
 

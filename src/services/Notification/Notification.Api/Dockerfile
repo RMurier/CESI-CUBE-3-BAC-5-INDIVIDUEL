@@ -8,6 +8,7 @@ COPY global.json .
 COPY src/Directory.Build.props src/Directory.Build.props
 COPY src/shared/Collector.Contracts/Collector.Contracts.csproj src/shared/Collector.Contracts/
 COPY src/shared/Collector.Messaging/Collector.Messaging.csproj src/shared/Collector.Messaging/
+COPY src/shared/Collector.Observability/Collector.Observability.csproj src/shared/Collector.Observability/
 COPY src/services/Notification/Notification.Api/Notification.Api.csproj src/services/Notification/Notification.Api/
 RUN dotnet restore src/services/Notification/Notification.Api/Notification.Api.csproj
 
