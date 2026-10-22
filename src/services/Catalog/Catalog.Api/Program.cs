@@ -17,6 +17,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpClient("omnia");
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IOmniaClient>(sp =>
     new OmniaClient(sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IConfiguration>(), "Catalog"));
 
@@ -89,6 +90,7 @@ using (var scope = app.Services.CreateScope())
     await db.EnsureCreatedAndUpToDateAsync();
 }
 
+app.UseCorrelationId();
 app.UseOmniaExceptionLogging(app.Environment.IsDevelopment());
 
 app.UseHttpMetrics();

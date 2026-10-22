@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpClient("omnia");
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IOmniaClient>(sp =>
     new OmniaClient(sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IConfiguration>(), "Chat"));
 
@@ -79,6 +80,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.EnsureCreatedAsync();
 }
 
+app.UseCorrelationId();
 app.UseOmniaExceptionLogging(app.Environment.IsDevelopment());
 
 app.UseHttpMetrics();

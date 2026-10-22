@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Collector.Observability;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -73,6 +74,11 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
     /// </summary>
     internal async Task HandleDeliveryAsync(IChannel channel, BasicDeliverEventArgs ea, string routingKey, CancellationToken cancellationToken)
     {
+        // Propagé par RabbitMqEventBus.PublishAsync depuis la requête HTTP d'origine (si elle existe) :
+        // relie une erreur de consumer, asynchrone et découplée dans le temps, à la transaction qui
+        // l'a causée, au lieu de devoir recouper des logs à la main entre services.
+        var correlationId = ea.BasicProperties.CorrelationId;
+
         try
         {
             var json = Encoding.UTF8.GetString(ea.Body.Span);
@@ -87,7 +93,29 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue}", routingKey, _queueName);
+            _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue} (CorrelationId: {CorrelationId})", routingKey, _queueName, correlationId);
+
+            // Jusqu'ici invisible ailleurs que dans kubectl logs : un consumer tourne dans un
+            // BackgroundService, hors de toute requête HTTP, donc jamais vu par UseOmniaExceptionLogging.
+            using var omniaScope = _scopeFactory.CreateScope();
+            var omnia = omniaScope.ServiceProvider.GetService<IOmniaClient>();
+            if (omnia is not null)
+            {
+                await omnia.SendLogAsync(
+                    category: "ConsumerError",
+                    level: "error",
+                    message: ex.Message,
+                    payload: new
+                    {
+                        service = omnia.ServiceName,
+                        correlationId,
+                        eventType = routingKey,
+                        queue = _queueName,
+                        details = ex.ToString(),
+                    },
+                    ct: cancellationToken);
+            }
+
             await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: cancellationToken);
         }
     }

@@ -33,6 +33,7 @@ public static class OmniaExceptionLogging
                 payload: new
                 {
                     service = omnia.ServiceName,
+                    correlationId = CorrelationId.Get(ctx),
                     exceptionType = ex.GetType().FullName,
                     // ex.ToString() (et non juste StackTrace) : inclut toute la chaîne d'InnerException
                     // avec leurs types/messages propres — souvent la vraie cause (ex : un timeout SQL

@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using Collector.Observability;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 
@@ -12,20 +14,23 @@ namespace Collector.Messaging;
 public sealed class RabbitMqEventBus : IEventBus, IAsyncDisposable
 {
     private readonly RabbitMqOptions _options;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private IConnection? _connection;
     private IChannel? _channel;
 
-    public RabbitMqEventBus(IOptions<RabbitMqOptions> options)
+    public RabbitMqEventBus(IOptions<RabbitMqOptions> options, IHttpContextAccessor httpContextAccessor)
     {
         _options = options.Value;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <summary>Seam de test : évite la vraie connexion RabbitMQ (voir RabbitMqEventBusTests).</summary>
-    internal RabbitMqEventBus(IOptions<RabbitMqOptions> options, IChannel testChannel)
+    internal RabbitMqEventBus(IOptions<RabbitMqOptions> options, IChannel testChannel, IHttpContextAccessor? httpContextAccessor = null)
     {
         _options = options.Value;
         _channel = testChannel;
+        _httpContextAccessor = httpContextAccessor ?? new HttpContextAccessor();
     }
 
     public async Task PublishAsync<TEvent>(TEvent message, CancellationToken cancellationToken = default)
@@ -39,6 +44,10 @@ public sealed class RabbitMqEventBus : IEventBus, IAsyncDisposable
         {
             Persistent = true,
             ContentType = "application/json",
+            // Permet de retrouver, dans le consumer comme dans Omnia, la requête HTTP d'origine qui
+            // a déclenché cet événement — sans ça, une erreur de consumer est impossible à relier à
+            // la transaction qui l'a causée une fois publiée de manière asynchrone.
+            CorrelationId = CorrelationId.Get(_httpContextAccessor),
         };
 
         await channel.BasicPublishAsync(

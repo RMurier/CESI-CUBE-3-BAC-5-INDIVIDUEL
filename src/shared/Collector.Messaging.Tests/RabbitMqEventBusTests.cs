@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Collector.Contracts.Events;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Moq;
 using RabbitMQ.Client;
@@ -58,6 +59,33 @@ public sealed class RabbitMqEventBusTests : IDisposable
         Assert.True(capturedProps!.Persistent);
         Assert.Equal("application/json", capturedProps.ContentType);
         Assert.Equal(evt, JsonSerializer.Deserialize<ArticlePublishedEvent>(capturedBody.Span));
+    }
+
+    [Fact]
+    public async Task PublishAsync_sets_the_AMQP_CorrelationId_from_the_current_HttpContext()
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["CorrelationId"] = "corr-99";
+        var accessor = new Mock<IHttpContextAccessor>();
+        accessor.SetupGet(a => a.HttpContext).Returns(httpContext);
+
+        await using var bus = new RabbitMqEventBus(
+            Options.Create(new RabbitMqOptions { ExchangeName = "collector.events" }),
+            _channel.Object,
+            accessor.Object);
+
+        BasicProperties? capturedProps = null;
+        _channel
+            .Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, bool, BasicProperties, ReadOnlyMemory<byte>, CancellationToken>(
+                (_, _, _, props, _, _) => capturedProps = props)
+            .Returns(ValueTask.CompletedTask);
+
+        await bus.PublishAsync(new PriceChangedEvent(Guid.NewGuid(), 10m, 8m, DateTimeOffset.UtcNow));
+
+        Assert.Equal("corr-99", capturedProps!.CorrelationId);
     }
 
     [Fact]
