@@ -28,3 +28,12 @@ infisical:
 
 # Pods autorisés à joindre Grafana : Traefik (kube-system).
 trafficNamespace: kube-system
+
+# Relais interne vers Omnia (voir Identity.Api/Program.cs, POST /alerts/grafana) — Omnia exige une
+# requête signée HMAC qu'un simple webhook Grafana ne sait pas produire. DNS interne au cluster
+# (jamais via Traefik/le domaine public) : la NetworkPolicy "services-http-ingress" du chart
+# applicatif autorise déjà les pods du namespace de monitoring à joindre les services applicatifs.
+# Une seule stack de monitoring pour 3 namespaces d'environnement (dev/uat/prod) : cible ici
+# CELUI qui doit rester joignable en continu pour que les alertes remontent de façon fiable — à
+# ajuster si l'environnement de référence change (ex. une fois prod remonté après l'upgrade matériel).
+alertWebhookUrl: http://collector-identity.collector-dev.svc.cluster.local/alerts/grafana

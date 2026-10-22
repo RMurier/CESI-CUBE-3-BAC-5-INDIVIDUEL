@@ -1,0 +1,5 @@
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: omnia-via-identity
+    group_by: ["alertname", "namespace"]

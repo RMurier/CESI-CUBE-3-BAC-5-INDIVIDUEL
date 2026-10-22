@@ -206,6 +206,25 @@ app.MapGet("/debug/omnia-test", (IWebHostEnvironment env) =>
     throw new InvalidOperationException($"Test manuel de l'intégration Omnia [{env.EnvironmentName}] #{token}.");
 }).AllowAnonymous();
 
+// Cible du contact point webhook de Grafana (voir infra/grafana) : relaie ses alertes vers Omnia,
+// qui n'a pas de mécanisme d'ingestion dédié aux alertes infra et exige de toute façon une requête
+// signée (HMAC) qu'un simple webhook Grafana ne sait pas produire. Appelé uniquement en DNS interne
+// au cluster (http://collector-identity.<namespace>/alerts/grafana) : jamais exposé par Traefik,
+// donc pas besoin d'authentification en plus de l'isolation réseau déjà en place (NetworkPolicy).
+app.MapPost("/alerts/grafana", async (System.Text.Json.JsonElement payload, IOmniaClient omnia) =>
+{
+    var title = payload.TryGetProperty("title", out var t) ? t.GetString() : null;
+    var status = payload.TryGetProperty("status", out var s) ? s.GetString() : "unknown";
+
+    await omnia.SendLogAsync(
+        category: "InfrastructureAlert",
+        // "resolved" n'est pas une erreur : juste de l'information (l'alerte s'est résorbée).
+        level: status == "resolved" ? "info" : "error",
+        message: title ?? "Alerte Grafana",
+        payload: new { service = "Grafana", status, raw = payload });
+    return Results.NoContent();
+}).AllowAnonymous();
+
 app.MapMaintenanceEndpoints();
 
 await app.RunAsync();

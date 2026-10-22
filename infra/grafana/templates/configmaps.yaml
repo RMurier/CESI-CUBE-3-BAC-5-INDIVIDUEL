@@ -12,6 +12,19 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: grafana-alerting
+  namespace: {{ .Release.Namespace }}
+data:
+  alerting-contactpoints.yaml: |
+{{ tpl (.Files.Get "files/alerting-contactpoints.yaml") . | indent 4 }}
+  alerting-policies.yaml: |
+{{ .Files.Get "files/alerting-policies.yaml" | indent 4 }}
+  alerting-rules.yaml: |
+{{ .Files.Get "files/alerting-rules.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: grafana-dashboards
   namespace: {{ .Release.Namespace }}
 data:

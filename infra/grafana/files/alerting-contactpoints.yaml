@@ -1,0 +1,10 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: omnia-via-identity
+    receivers:
+      - uid: omnia-via-identity-webhook
+        type: webhook
+        settings:
+          url: {{ .Values.alertWebhookUrl }}
+          httpMethod: POST

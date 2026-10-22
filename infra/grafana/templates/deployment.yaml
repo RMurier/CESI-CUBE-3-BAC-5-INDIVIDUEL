@@ -39,6 +39,9 @@ spec:
             - { name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasource.yaml, subPath: datasource.yaml }
             - { name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboard-provider.yaml, subPath: dashboard-provider.yaml }
             - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+            - { name: alerting, mountPath: /etc/grafana/provisioning/alerting/alerting-contactpoints.yaml, subPath: alerting-contactpoints.yaml }
+            - { name: alerting, mountPath: /etc/grafana/provisioning/alerting/alerting-policies.yaml, subPath: alerting-policies.yaml }
+            - { name: alerting, mountPath: /etc/grafana/provisioning/alerting/alerting-rules.yaml, subPath: alerting-rules.yaml }
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
@@ -46,6 +49,8 @@ spec:
           configMap: { name: grafana-provisioning }
         - name: dashboards
           configMap: { name: grafana-dashboards }
+        - name: alerting
+          configMap: { name: grafana-alerting }
 ---
 apiVersion: v1
 kind: Service
