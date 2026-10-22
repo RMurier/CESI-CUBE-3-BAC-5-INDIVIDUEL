@@ -194,11 +194,14 @@ app.MapPost("/logs/client-error", async (ClientErrorRequest request, IOmniaClien
 }).AllowAnonymous();
 
 // Déclenche volontairement une exception non gérée, pour valider de bout en bout l'envoi vers Omnia
-// (UseExceptionHandler -> IOmniaClient -> dashboard) sans attendre un vrai bug. À retirer une fois
-// l'intégration validée en dev.
-app.MapGet("/debug/omnia-test", () =>
+// (UseExceptionHandler -> IOmniaClient -> dashboard) sans attendre un vrai bug. Conservé en
+// permanence (utile en démo) : le nom d'environnement (Development/Staging/Production, cf.
+// configmap.yaml) et un jeton aléatoire sont inclus dans le message pour distinguer dans le
+// dashboard Omnia les appels faits depuis dev/uat/prod.
+app.MapGet("/debug/omnia-test", (IWebHostEnvironment env) =>
 {
-    throw new InvalidOperationException("Test manuel de l'intégration Omnia (à retirer une fois validé).");
+    var token = Random.Shared.Next(1000, 9999);
+    throw new InvalidOperationException($"Test manuel de l'intégration Omnia [{env.EnvironmentName}] #{token}.");
 }).AllowAnonymous();
 
 app.MapMaintenanceEndpoints();
