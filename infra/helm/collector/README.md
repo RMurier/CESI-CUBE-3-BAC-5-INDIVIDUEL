@@ -46,6 +46,7 @@ doit utiliser le `MSSQL_SA_PASSWORD__<service>` **du même service**, jamais cel
 | `Stripe__SecretKey` | Catalog (création des sessions Stripe Checkout) — `sk_test_...` en dev/uat. Absente = paiement désactivé (`POST /orders` répond 503). **Connect doit être activé** sur le compte Stripe (onboarding vendeur), le service démarre quand même |
 | `Maintenance__ApiKey` | Identity, Catalog (endpoints `/internal/*` appelés par Airflow) — une valeur par environnement, identique à la Variable Airflow `collector_<env>_maintenance_key`. Absente = endpoints désactivés (404) |
 | `Stripe__WebhookSecret` | Catalog (vérification de la signature des webhooks) — `whsec_...` du endpoint `https://<domaine>/api/catalog/webhooks/stripe` créé dans le dashboard Stripe. **Un endpoint (donc un `whsec_`) par environnement** : chaque scope Infisical porte le sien |
+| `Omnia__ProjectId` / `Omnia__Secret` | Les 5 services (logs d'exceptions non gérées + erreurs frontend relayées par Identity) — mêmes valeurs que le projet "Collector" enregistré sur omnia-monitoring.com (ProjectId = GUID, Secret = clé HMAC en base64, mêmes noms de clé que sur les autres projets de l'utilisateur type WealthFlowX). Absentes = `IOmniaClient` ne fait rien silencieusement (pas d'exception, pas de blocage) |
 
 **`KUBE_CONFIG_B64`, `INFISICAL_CLIENT_ID` et `INFISICAL_CLIENT_SECRET` ne sont volontairement PAS
 dans cette liste** : ce sont des secrets d'infra CI/CD, pas des secrets applicatifs — même cluster
@@ -77,10 +78,12 @@ helm template collector infra/helm/collector -f infra/helm/collector/values-dev.
 
 ## Monitoring (quatre charts séparés)
 
-Prometheus, kube-state-metrics, Grafana et Headlamp ont chacun leur dossier et leur chart Helm, déployés par le job `deploy-monitoring` de `pipeline.yml` (en parallèle de deploy-dev/uat/prod, mêmes conditions et mêmes environnements GitHub, donc approbation sur master)
-à **chaque push sur `develop`, `uat` ou `master`** (comme l'application) : modifier `infra/prometheus/files/prometheus.yml` ou un dashboard de
-`infra/grafana/dashboards/` puis pousser suffit, le pod redémarre seul. Une seule stack, namespace `collector-monitoring`,
-qui surveille les 3 environnements.
+Prometheus, kube-state-metrics, Grafana et Headlamp ont chacun leur dossier et leur chart Helm, déployés par 4 jobs séparés
+(`deploy-prometheus`, `deploy-kube-state-metrics`, `deploy-grafana`, `deploy-headlamp`) de `pipeline.yml` (en parallèle de
+deploy-dev/uat/prod, mêmes conditions de déclenchement : push `develop` -> dev, push `master` -> uat, release publiée ->
+production avec approbation reviewer) à **chaque push/release** (comme l'application) : modifier `infra/prometheus/files/prometheus.yml`
+ou un dashboard de `infra/grafana/dashboards/` puis pousser suffit, le pod redémarre seul. Une seule stack, namespace
+`collector-monitoring`, qui surveille les 3 environnements.
 
 Prérequis manuels (une fois) :
 - DNS `grafana.collector.romainmurier.com` et `headlamp.collector.romainmurier.com` (A -> IP du serveur, modifiables via `host` dans `infra/grafana/values.yaml` et `infra/headlamp/values.yaml`) ; chaque chart crée son certificat Let's Encrypt, sa route HTTPS Traefik et la redirection HTTP -> HTTPS ;

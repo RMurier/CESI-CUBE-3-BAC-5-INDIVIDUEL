@@ -8,12 +8,19 @@ using Catalog.Api.Infrastructure;
 using Catalog.Api.Messaging;
 using Collector.Contracts.Events;
 using Collector.Messaging;
+using Collector.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpClient("omnia");
+builder.Services.AddSingleton<IOmniaClient>(sp =>
+    new OmniaClient(sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IConfiguration>(), "Catalog"));
 
 // Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
 // Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
@@ -83,6 +90,40 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
     await db.EnsureCreatedAndUpToDateAsync();
 }
+
+// Log vers Omnia de toute exception non gérée par un endpoint (ceux-ci renvoient Results.X()
+// directement pour leurs cas d'erreur métier — ce handler ne voit donc que les vrais bugs).
+app.UseExceptionHandler(errApp =>
+{
+    errApp.Run(async ctx =>
+    {
+        var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+        if (ex is not null)
+        {
+            var omnia = ctx.RequestServices.GetRequiredService<IOmniaClient>();
+            await omnia.SendLogAsync(
+                category: "UnhandledException",
+                level: "error",
+                message: ex.Message,
+                payload: new
+                {
+                    exceptionType = ex.GetType().FullName,
+                    stackTrace = ex.StackTrace,
+                    path = ctx.Request.Path.Value,
+                    method = ctx.Request.Method,
+                });
+        }
+
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        ctx.Response.ContentType = "application/problem+json";
+        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "Une erreur interne est survenue.",
+            Detail = app.Environment.IsDevelopment() ? ex?.ToString() : null,
+        });
+    });
+});
 
 app.UseHttpMetrics();
 app.UseCors("Frontend");

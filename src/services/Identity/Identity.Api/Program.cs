@@ -5,13 +5,20 @@ using System.Text;
 using Identity.Api.Domain;
 using Identity.Api.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using Collector.Observability;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpClient("omnia");
+builder.Services.AddSingleton<IOmniaClient>(sp =>
+    new OmniaClient(sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IConfiguration>(), "Identity"));
 
 // Endpoint /metrics sur un port dédié (jamais exposé par Traefik, scrapé par Prometheus via l'IP du pod).
 // Désactivé si Metrics:Port est absent (tests d'intégration : plusieurs hôtes dans le même processus).
@@ -100,6 +107,40 @@ using (var scope = app.Services.CreateScope())
     await db.EnsureCreatedAndUpToDateAsync();
 }
 
+// Log vers Omnia de toute exception non gérée par un endpoint (ceux-ci renvoient Results.X()
+// directement pour leurs cas d'erreur métier — ce handler ne voit donc que les vrais bugs).
+app.UseExceptionHandler(errApp =>
+{
+    errApp.Run(async ctx =>
+    {
+        var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+        if (ex is not null)
+        {
+            var omnia = ctx.RequestServices.GetRequiredService<IOmniaClient>();
+            await omnia.SendLogAsync(
+                category: "UnhandledException",
+                level: "error",
+                message: ex.Message,
+                payload: new
+                {
+                    exceptionType = ex.GetType().FullName,
+                    stackTrace = ex.StackTrace,
+                    path = ctx.Request.Path.Value,
+                    method = ctx.Request.Method,
+                });
+        }
+
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        ctx.Response.ContentType = "application/problem+json";
+        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "Une erreur interne est survenue.",
+            Detail = app.Environment.IsDevelopment() ? ex?.ToString() : null,
+        });
+    });
+});
+
 app.UseHttpMetrics();
 app.UseForwardedHeaders();
 app.UseCors("Frontend");
@@ -130,7 +171,7 @@ app.MapPost("/auth/register", async (RegisterRequest request, IdentityDbContext 
     return Results.Created($"/users/{user.Id}", new { user.Id, user.Email, user.DisplayName });
 }).RequireRateLimiting("auth");
 
-app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, JwtTokenService tokenService, RefreshTokenService refreshTokens) =>
+app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, JwtTokenService tokenService, RefreshTokenService refreshTokens, IOmniaClient omnia) =>
 {
     var user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email);
     if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
@@ -140,6 +181,7 @@ app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, Jw
 
     var token = tokenService.IssueToken(user);
     var refreshToken = await refreshTokens.IssueAsync(user);
+    await omnia.TrackLoginAsync(user.Id.ToString());
     return Results.Ok(new { accessToken = token, refreshToken, roles = user.Roles() });
 }).RequireRateLimiting("auth");
 
@@ -169,6 +211,18 @@ app.MapPost("/auth/become-seller", async (ClaimsPrincipal principal, IdentityDbC
     await db.SaveChangesAsync();
     return Results.Ok(new { user.Id, roles = user.Roles() });
 }).RequireAuthorization();
+
+// Pas de gateway dédié parmi les 5 services : le frontend remonte ses erreurs ici (Identity est
+// le service que toute session, connectée ou pas, touche déjà pour l'auth).
+app.MapPost("/logs/client-error", async (ClientErrorRequest request, IOmniaClient omnia) =>
+{
+    await omnia.SendLogAsync(
+        category: "FrontendError",
+        level: "error",
+        message: request.Message,
+        payload: new { source = request.Source, stackTrace = request.StackTrace, url = request.Url });
+    return Results.NoContent();
+}).AllowAnonymous();
 
 app.MapMaintenanceEndpoints();
 

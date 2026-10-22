@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\shared\Collector.Contracts\Collector.Contracts.csproj" />
     <ProjectReference Include="..\..\..\shared\Collector.Messaging\Collector.Messaging.csproj" />
+    <ProjectReference Include="..\..\..\shared\Collector.Observability\Collector.Observability.csproj" />
   </ItemGroup>
 
   <ItemGroup>
