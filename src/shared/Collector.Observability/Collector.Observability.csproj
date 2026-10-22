@@ -4,9 +4,17 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Pas Sdk.Web : juste besoin des types HttpContext/IExceptionHandlerFeature/ProblemDetails pour
+       OmniaExceptionLogging (et IHttpClientFactory/IConfiguration pour OmniaClient), sans faire de
+       cette librairie partagée une appli web elle-même. Microsoft.Extensions.Http et
+       Microsoft.Extensions.Configuration.Abstractions sont déjà fournis par ce FrameworkReference
+       (pas de PackageReference explicite dessus : NU1510, "already available"). -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.0" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Collector.Observability.Tests" />
   </ItemGroup>
 
 </Project>

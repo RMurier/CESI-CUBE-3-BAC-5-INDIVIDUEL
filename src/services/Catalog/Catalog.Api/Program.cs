@@ -10,8 +10,6 @@ using Collector.Contracts.Events;
 using Collector.Messaging;
 using Collector.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Diagnostics;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -91,39 +89,7 @@ using (var scope = app.Services.CreateScope())
     await db.EnsureCreatedAndUpToDateAsync();
 }
 
-// Log vers Omnia de toute exception non gérée par un endpoint (ceux-ci renvoient Results.X()
-// directement pour leurs cas d'erreur métier — ce handler ne voit donc que les vrais bugs).
-app.UseExceptionHandler(errApp =>
-{
-    errApp.Run(async ctx =>
-    {
-        var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
-        if (ex is not null)
-        {
-            var omnia = ctx.RequestServices.GetRequiredService<IOmniaClient>();
-            await omnia.SendLogAsync(
-                category: "UnhandledException",
-                level: "error",
-                message: ex.Message,
-                payload: new
-                {
-                    exceptionType = ex.GetType().FullName,
-                    stackTrace = ex.StackTrace,
-                    path = ctx.Request.Path.Value,
-                    method = ctx.Request.Method,
-                });
-        }
-
-        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        ctx.Response.ContentType = "application/problem+json";
-        await ctx.Response.WriteAsJsonAsync(new ProblemDetails
-        {
-            Status = StatusCodes.Status500InternalServerError,
-            Title = "Une erreur interne est survenue.",
-            Detail = app.Environment.IsDevelopment() ? ex?.ToString() : null,
-        });
-    });
-});
+app.UseOmniaExceptionLogging(app.Environment.IsDevelopment());
 
 app.UseHttpMetrics();
 app.UseCors("Frontend");
