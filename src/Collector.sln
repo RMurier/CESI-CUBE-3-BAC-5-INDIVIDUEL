@@ -47,6 +47,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Collector.Messaging.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Collector.Observability", "shared\Collector.Observability\Collector.Observability.csproj", "{1F4C8A22-281D-460E-93B5-6AC11F0EAB7F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Collector.Observability.Tests", "shared\Collector.Observability.Tests\Collector.Observability.Tests.csproj", "{024B911A-04FB-4109-9BA2-E39225905A18}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -237,6 +239,18 @@ Global
 		{1F4C8A22-281D-460E-93B5-6AC11F0EAB7F}.Release|x64.Build.0 = Release|Any CPU
 		{1F4C8A22-281D-460E-93B5-6AC11F0EAB7F}.Release|x86.ActiveCfg = Release|Any CPU
 		{1F4C8A22-281D-460E-93B5-6AC11F0EAB7F}.Release|x86.Build.0 = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|x64.Build.0 = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Debug|x86.Build.0 = Debug|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|Any CPU.Build.0 = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|x64.ActiveCfg = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|x64.Build.0 = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|x86.ActiveCfg = Release|Any CPU
+		{024B911A-04FB-4109-9BA2-E39225905A18}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -255,5 +269,6 @@ Global
 		{97C3B7A5-855C-4EA4-8845-7CA1D016ECF7} = {518B12B6-4C57-08E4-5168-0FC23EA394FD}
 		{2599D447-E251-40E5-AEA4-FC74AA302F61} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
 		{1F4C8A22-281D-460E-93B5-6AC11F0EAB7F} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
+		{024B911A-04FB-4109-9BA2-E39225905A18} = {4F52FD11-658E-A102-6CD3-7D7C16FFA15B}
 	EndGlobalSection
 EndGlobal
