@@ -18,6 +18,12 @@ namespace Collector.Messaging;
 public abstract class RabbitMqConsumer<TEvent> : BackgroundService
     where TEvent : class
 {
+    // Un message qui échoue systématiquement (ex: violation de contrainte en base) ne réussira
+    // jamais, peu importe le nombre de tentatives : sans plafond, BasicNackAsync(requeue: true)
+    // le redistribue aussitôt, en boucle infinie, qui consomme du CPU et spamme Omnia sans fin.
+    private const int MaxAttempts = 5;
+    private const string RetryCountHeader = "x-collector-retry-count";
+
     private readonly RabbitMqOptions _options;
     private readonly string _queueName;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -78,6 +84,7 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
         // relie une erreur de consumer, asynchrone et découplée dans le temps, à la transaction qui
         // l'a causée, au lieu de devoir recouper des logs à la main entre services.
         var correlationId = ea.BasicProperties.CorrelationId;
+        var attempt = GetAttempt(ea.BasicProperties);
 
         try
         {
@@ -93,7 +100,11 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue} (CorrelationId: {CorrelationId})", routingKey, _queueName, correlationId);
+            var rootMessage = ExceptionDetails.RootMessage(ex);
+            var abandoning = attempt + 1 >= MaxAttempts;
+
+            _logger.LogError(ex, "Échec du traitement de l'événement {EventType} sur la queue {Queue} (CorrelationId: {CorrelationId}, tentative {Attempt}/{MaxAttempts}){Abandon}",
+                routingKey, _queueName, correlationId, attempt + 1, MaxAttempts, abandoning ? " — ABANDONNÉ" : "");
 
             // Jusqu'ici invisible ailleurs que dans kubectl logs : un consumer tourne dans un
             // BackgroundService, hors de toute requête HTTP, donc jamais vu par UseOmniaExceptionLogging.
@@ -102,21 +113,60 @@ public abstract class RabbitMqConsumer<TEvent> : BackgroundService
             if (omnia is not null)
             {
                 await omnia.SendLogAsync(
-                    category: "ConsumerError",
+                    // Catégorie distincte à l'abandon : un pic de ConsumerError peut être transitoire
+                    // (ex: base temporairement injoignable), un ConsumerMessageAbandoned signale un
+                    // message qui ne passera jamais et qu'il faut regarder manuellement.
+                    category: abandoning ? "ConsumerMessageAbandoned" : "ConsumerError",
                     level: "error",
-                    message: ex.Message,
+                    // Message de la cause racine, pas celui du wrapper externe (EF Core, par ex.,
+                    // enrobe systématiquement avec un message générique inutile sans l'InnerException).
+                    message: rootMessage,
                     payload: new
                     {
                         service = omnia.ServiceName,
                         correlationId,
                         eventType = routingKey,
                         queue = _queueName,
+                        attempt = attempt + 1,
+                        maxAttempts = MaxAttempts,
+                        outerMessage = ex.Message,
                         details = ex.ToString(),
                     },
                     ct: cancellationToken);
             }
 
-            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: cancellationToken);
+            if (abandoning)
+            {
+                // Plus de tentative : on retire le message de la queue sans le retraiter, sinon il
+                // boucle à l'infini sur une erreur qui ne se résoudra jamais seule.
+                await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: cancellationToken);
+            }
+            else
+            {
+                // BasicNackAsync(requeue: true) redistribue le même message sans pouvoir modifier ses
+                // headers : on republie nous-mêmes une copie avec le compteur incrémenté, puis on ack
+                // l'originale (sinon RabbitMQ la redistribue EN PLUS de notre copie).
+                var retryProps = new BasicProperties(ea.BasicProperties)
+                {
+                    Headers = new Dictionary<string, object?>(ea.BasicProperties.Headers ?? new Dictionary<string, object?>())
+                    {
+                        [RetryCountHeader] = attempt + 1,
+                    },
+                };
+                await channel.BasicPublishAsync(
+                    exchange: string.Empty,
+                    routingKey: _queueName,
+                    mandatory: false,
+                    basicProperties: retryProps,
+                    body: ea.Body,
+                    cancellationToken: cancellationToken);
+                await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: cancellationToken);
+            }
         }
     }
+
+    private static int GetAttempt(IReadOnlyBasicProperties props) => props.Headers is { } headers
+        && headers.TryGetValue(RetryCountHeader, out var raw)
+        ? raw switch { int i => i, long l => (int)l, _ => 0 }
+        : 0;
 }

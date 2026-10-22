@@ -28,6 +28,10 @@ public sealed class RabbitMqConsumerTests : IDisposable
             .Returns(ValueTask.CompletedTask);
         _channel.Setup(c => c.BasicNackAsync(It.IsAny<ulong>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
+        _channel.Setup(c => c.BasicPublishAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
+                It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
 
         var scopeFactory = new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         _consumer = new TestConsumer(Options.Create(new RabbitMqOptions()), scopeFactory, NullLogger.Instance);
@@ -35,13 +39,17 @@ public sealed class RabbitMqConsumerTests : IDisposable
 
     public void Dispose() => _consumer.Dispose();
 
-    private static BasicDeliverEventArgs Delivery(ArticlePublishedEvent message, ulong deliveryTag = 1, string? correlationId = null) => new(
+    private static BasicDeliverEventArgs Delivery(ArticlePublishedEvent message, ulong deliveryTag = 1, string? correlationId = null, int attempt = 0) => new(
         consumerTag: "test-consumer",
         deliveryTag: deliveryTag,
         redelivered: false,
         exchange: "collector.events",
         routingKey: nameof(ArticlePublishedEvent),
-        properties: new BasicProperties { CorrelationId = correlationId },
+        properties: new BasicProperties
+        {
+            CorrelationId = correlationId,
+            Headers = attempt > 0 ? new Dictionary<string, object?> { ["x-collector-retry-count"] = attempt } : null,
+        },
         body: JsonSerializer.SerializeToUtf8Bytes(message),
         cancellationToken: CancellationToken.None);
 
@@ -58,16 +66,55 @@ public sealed class RabbitMqConsumerTests : IDisposable
     }
 
     [Fact]
-    public async Task HandleDeliveryAsync_nacks_with_requeue_when_HandleAsync_throws()
+    public async Task HandleDeliveryAsync_republishes_with_an_incremented_retry_count_when_HandleAsync_throws()
     {
+        // BasicNackAsync(requeue: true) redistribue le message sans pouvoir toucher à ses headers :
+        // on republie nous-mêmes une copie avec le compteur de tentatives incrémenté, puis on ack
+        // l'originale (jamais de BasicNackAsync, sinon RabbitMQ la redistribuerait EN PLUS).
         _consumer.ThrowOnHandle = true;
+        BasicProperties? republishedProps = null;
+        _channel
+            .Setup(c => c.BasicPublishAsync(
+                string.Empty, "test-queue", false,
+                It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, bool, BasicProperties, ReadOnlyMemory<byte>, CancellationToken>(
+                (_, _, _, props, _, _) => republishedProps = props)
+            .Returns(ValueTask.CompletedTask);
         var evt = new ArticlePublishedEvent(Guid.NewGuid(), Guid.NewGuid(), "x", 1m, DateTimeOffset.UtcNow);
 
-        await _consumer.HandleDeliveryAsync(_channel.Object, Delivery(evt, deliveryTag: 3), nameof(ArticlePublishedEvent), CancellationToken.None);
+        await _consumer.HandleDeliveryAsync(_channel.Object, Delivery(evt, deliveryTag: 3, attempt: 1), nameof(ArticlePublishedEvent), CancellationToken.None);
 
         Assert.Empty(_consumer.Handled);
-        _channel.Verify(c => c.BasicNackAsync(3UL, false, true, It.IsAny<CancellationToken>()), Times.Once);
-        _channel.Verify(c => c.BasicAckAsync(It.IsAny<ulong>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Equal(2, republishedProps!.Headers!["x-collector-retry-count"]);
+        _channel.Verify(c => c.BasicAckAsync(3UL, false, It.IsAny<CancellationToken>()), Times.Once);
+        _channel.Verify(c => c.BasicNackAsync(It.IsAny<ulong>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleDeliveryAsync_abandons_the_message_after_MaxAttempts_instead_of_looping_forever()
+    {
+        var omnia = new Mock<IOmniaClient>();
+        omnia.SetupGet(o => o.ServiceName).Returns("Moderation");
+        string? capturedCategory = null;
+        omnia.Setup(o => o.SendLogAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, object?, CancellationToken>((category, _, _, _, _) => capturedCategory = category)
+            .Returns(Task.CompletedTask);
+
+        var services = new ServiceCollection();
+        services.AddSingleton(omnia.Object);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+        using var consumer = new TestConsumer(Options.Create(new RabbitMqOptions()), scopeFactory, NullLogger.Instance) { ThrowOnHandle = true };
+
+        var evt = new ArticlePublishedEvent(Guid.NewGuid(), Guid.NewGuid(), "x", 1m, DateTimeOffset.UtcNow);
+        // attempt: 4 -> 5e tentative -> atteint MaxAttempts (5) -> abandon, pas de republish.
+        await consumer.HandleDeliveryAsync(_channel.Object, Delivery(evt, deliveryTag: 11, attempt: 4), nameof(ArticlePublishedEvent), CancellationToken.None);
+
+        Assert.Equal("ConsumerMessageAbandoned", capturedCategory);
+        _channel.Verify(c => c.BasicAckAsync(11UL, false, It.IsAny<CancellationToken>()), Times.Once);
+        _channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
+            It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -101,13 +148,16 @@ public sealed class RabbitMqConsumerTests : IDisposable
     public async Task HandleDeliveryAsync_does_not_throw_when_Omnia_is_not_registered()
     {
         // _consumer (champ partagé) est construit avec un IServiceScopeFactory vide : IOmniaClient
-        // n'y est pas enregistré. Vérifie que le nack a bien lieu malgré l'absence du client.
+        // n'y est pas enregistré. Vérifie que la republication a bien lieu malgré l'absence du client.
         _consumer.ThrowOnHandle = true;
         var evt = new ArticlePublishedEvent(Guid.NewGuid(), Guid.NewGuid(), "x", 1m, DateTimeOffset.UtcNow);
 
         await _consumer.HandleDeliveryAsync(_channel.Object, Delivery(evt, deliveryTag: 9), nameof(ArticlePublishedEvent), CancellationToken.None);
 
-        _channel.Verify(c => c.BasicNackAsync(9UL, false, true, It.IsAny<CancellationToken>()), Times.Once);
+        _channel.Verify(c => c.BasicAckAsync(9UL, false, It.IsAny<CancellationToken>()), Times.Once);
+        _channel.Verify(c => c.BasicPublishAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
+            It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private sealed class TestConsumer(IOptions<RabbitMqOptions> options, IServiceScopeFactory scopeFactory, Microsoft.Extensions.Logging.ILogger logger)

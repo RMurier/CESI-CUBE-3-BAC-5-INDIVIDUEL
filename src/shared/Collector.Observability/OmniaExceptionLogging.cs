@@ -29,12 +29,17 @@ public static class OmniaExceptionLogging
             await omnia.SendLogAsync(
                 category: "UnhandledException",
                 level: "error",
-                message: ex.Message,
+                // Message de la cause racine, pas celui du wrapper externe (EF Core, par ex., enrobe
+                // systématiquement avec "An error occurred while saving the entity changes. See the
+                // inner exception for details." — un message qui ne dit littéralement rien tant qu'on
+                // ne regarde pas l'InnerException).
+                message: ExceptionDetails.RootMessage(ex),
                 payload: new
                 {
                     service = omnia.ServiceName,
                     correlationId = CorrelationId.Get(ctx),
                     exceptionType = ex.GetType().FullName,
+                    outerMessage = ex.Message,
                     // ex.ToString() (et non juste StackTrace) : inclut toute la chaîne d'InnerException
                     // avec leurs types/messages propres — souvent la vraie cause (ex : un timeout SQL
                     // enterré sous une SqlException puis une exception EF Core) est sinon invisible.

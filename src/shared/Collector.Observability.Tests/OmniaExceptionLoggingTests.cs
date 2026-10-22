@@ -52,12 +52,16 @@ public sealed class OmniaExceptionLoggingTests
 
         await OmniaExceptionLogging.HandleAsync(ctx, isDevelopment: false);
 
+        // Le message principal est celui de la cause racine (TimeoutException), pas celui du wrapper
+        // externe (InvalidOperationException "Boom") — sinon il faudrait systématiquement aller
+        // chercher dans le payload pour savoir ce qui a vraiment échoué.
         omnia.Verify(o => o.SendLogAsync(
-            "UnhandledException", "error", "Boom", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+            "UnhandledException", "error", "La connexion au serveur a expiré.", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
 
         Assert.NotNull(capturedPayload);
         using var payloadJson = JsonDocument.Parse(JsonSerializer.Serialize(capturedPayload));
         Assert.Equal("Identity", payloadJson.RootElement.GetProperty("service").GetString());
+        Assert.Equal("Boom", payloadJson.RootElement.GetProperty("outerMessage").GetString());
         Assert.Equal("/shops", payloadJson.RootElement.GetProperty("path").GetString());
         Assert.Equal("POST", payloadJson.RootElement.GetProperty("method").GetString());
         var details = payloadJson.RootElement.GetProperty("details").GetString();
