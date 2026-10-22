@@ -186,7 +186,10 @@ app.MapPost("/logs/client-error", async (ClientErrorRequest request, IOmniaClien
         category: "FrontendError",
         level: "error",
         message: request.Message,
-        payload: new { source = request.Source, stackTrace = request.StackTrace, url = request.Url });
+        // category est préfixée par le nom du service qui relaie l'appel ("Identity.FrontendError"),
+        // pas par l'origine réelle de l'erreur : on la précise explicitement pour ne pas laisser croire
+        // que c'est Identity qui a planté alors que c'est le navigateur.
+        payload: new { service = "Frontend", source = request.Source, stackTrace = request.StackTrace, url = request.Url });
     return Results.NoContent();
 }).AllowAnonymous();
 

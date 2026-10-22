@@ -20,6 +20,8 @@ public sealed class OmniaClient : IOmniaClient
     private readonly string _version;
     private readonly bool _isConfigured;
 
+    public string ServiceName => _serviceName;
+
     public OmniaClient(IHttpClientFactory httpClientFactory, IConfiguration configuration, string serviceName)
     {
         _httpClientFactory = httpClientFactory;

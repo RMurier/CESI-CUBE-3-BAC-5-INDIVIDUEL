@@ -37,13 +37,33 @@ public sealed class OmniaExceptionLoggingTests
     public async Task HandleAsync_sends_the_exception_to_Omnia_and_returns_a_generic_500()
     {
         var omnia = new Mock<IOmniaClient>();
-        var error = new InvalidOperationException("Boom");
+        omnia.SetupGet(o => o.ServiceName).Returns("Identity");
+        object? capturedPayload = null;
+        omnia.Setup(o => o.SendLogAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, object?, CancellationToken>((_, _, _, payload, _) => capturedPayload = payload)
+            .Returns(Task.CompletedTask);
+
+        // Une exception EF Core/SQL typique enterre la vraie cause (ici, un timeout réseau) dans une
+        // InnerException : on vérifie que le payload envoyé à Omnia ne perd pas cette information.
+        var innerError = new TimeoutException("La connexion au serveur a expiré.");
+        var error = new InvalidOperationException("Boom", innerError);
         var ctx = CreateContext(error, omnia.Object);
 
         await OmniaExceptionLogging.HandleAsync(ctx, isDevelopment: false);
 
         omnia.Verify(o => o.SendLogAsync(
             "UnhandledException", "error", "Boom", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        Assert.NotNull(capturedPayload);
+        using var payloadJson = JsonDocument.Parse(JsonSerializer.Serialize(capturedPayload));
+        Assert.Equal("Identity", payloadJson.RootElement.GetProperty("service").GetString());
+        Assert.Equal("/shops", payloadJson.RootElement.GetProperty("path").GetString());
+        Assert.Equal("POST", payloadJson.RootElement.GetProperty("method").GetString());
+        var details = payloadJson.RootElement.GetProperty("details").GetString();
+        Assert.Contains("Boom", details);
+        // La chaîne d'InnerException complète est présente, pas seulement l'exception la plus externe.
+        Assert.Contains("La connexion au serveur a expiré.", details);
 
         Assert.Equal(StatusCodes.Status500InternalServerError, ctx.Response.StatusCode);
         ctx.Response.Body.Position = 0;

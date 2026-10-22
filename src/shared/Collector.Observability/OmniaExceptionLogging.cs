@@ -32,8 +32,12 @@ public static class OmniaExceptionLogging
                 message: ex.Message,
                 payload: new
                 {
+                    service = omnia.ServiceName,
                     exceptionType = ex.GetType().FullName,
-                    stackTrace = ex.StackTrace,
+                    // ex.ToString() (et non juste StackTrace) : inclut toute la chaîne d'InnerException
+                    // avec leurs types/messages propres — souvent la vraie cause (ex : un timeout SQL
+                    // enterré sous une SqlException puis une exception EF Core) est sinon invisible.
+                    details = ex.ToString(),
                     path = ctx.Request.Path.Value,
                     method = ctx.Request.Method,
                 });
