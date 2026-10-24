@@ -27,6 +27,16 @@ public static class MaintenanceEndpoints
                 .ExecuteDeleteAsync(cancellationToken);
             return Results.Ok(new { deleted });
         });
+
+        // Résolution userId -> email, appelée par Notification.Api pour l'envoi SMTP (voir SmtpEmailSender).
+        group.MapGet("/users/{id:guid}/email", async (Guid id, IdentityDbContext db, CancellationToken cancellationToken) =>
+        {
+            var email = await db.Users
+                .Where(u => u.Id == id)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync(cancellationToken);
+            return email is null ? Results.NotFound() : Results.Ok(new { email });
+        });
     }
 
     private static async ValueTask<object?> RequireMaintenanceKey(EndpointFilterInvocationContext context, EndpointFilterDelegate next)

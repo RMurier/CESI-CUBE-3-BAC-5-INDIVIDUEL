@@ -18,6 +18,8 @@ data:
   RabbitMq__ExchangeName: "collector.events"
   Jwt__Issuer: "collector-identity"
   Jwt__Audience: "collector-api"
+  # Notification.Api résout les emails via l'endpoint interne d'Identity (SmtpEmailSender).
+  Identity__InternalBaseUrl: "http://collector-identity"
   # Requis par Identity/Catalog/Notification.Api (sinon ils lèvent une exception au démarrage,
   # voir Program.cs) — dérivé du domaine déjà défini par environnement (section 4 du README).
   Cors__FrontendOrigin: "https://{{ .Values.global.domain }}"

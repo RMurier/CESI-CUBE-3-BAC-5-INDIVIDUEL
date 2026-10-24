@@ -1,9 +1,10 @@
 namespace Notification.Api.Infrastructure;
 
 /// <summary>
-/// Abstraction d'envoi d'email. Implémentation par défaut : log uniquement (fournisseur SMTP non
-/// encore tranché — voir README section 12, "Fournisseur d'envoi d'email"). Remplacer
-/// LoggingEmailSender par une vraie implémentation SMTP sans toucher au reste du service.
+/// Abstraction d'envoi d'email. <see cref="SmtpEmailSender"/> est utilisé dès que `Smtp:Host` est
+/// configuré (secrets Infisical `Smtp__*`, SMTP OVH) ; sinon <see cref="LoggingEmailSender"/> prend
+/// le relais (même pattern que Stripe/Omnia : secret absent = fonctionnalité désactivée sans erreur,
+/// voir Program.cs).
 /// </summary>
 public interface IEmailSender
 {

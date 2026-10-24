@@ -10,6 +10,11 @@ using Notification.Api.Messaging;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpClient("omnia");
+builder.Services.AddHttpClient("identity-internal", client =>
+{
+    var baseUrl = builder.Configuration["Identity:InternalBaseUrl"];
+    if (!string.IsNullOrWhiteSpace(baseUrl)) client.BaseAddress = new Uri(baseUrl);
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IOmniaClient>(sp =>
     new OmniaClient(sp.GetRequiredService<IHttpClientFactory>(), sp.GetRequiredService<IConfiguration>(), "Notification"));
@@ -28,7 +33,15 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 builder.Services.AddCollectorEventBus(builder.Configuration);
 builder.Services.AddHostedService<ArticlePublishedConsumer>();
 builder.Services.AddHostedService<OrderPaidConsumer>();
-builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+// Smtp:Host absent (local dev, tests) = stub de log, comme Stripe/Omnia (voir IEmailSender.cs).
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"]))
+{
+    builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+}
 
 var frontendOrigin = builder.Configuration["Cors:FrontendOrigin"]
     ?? throw new InvalidOperationException("Configuration 'Cors:FrontendOrigin' manquante.");
