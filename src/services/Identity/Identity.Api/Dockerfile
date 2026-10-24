@@ -6,11 +6,13 @@ WORKDIR /src
 
 COPY global.json .
 COPY src/Directory.Build.props src/Directory.Build.props
+COPY src/shared/Collector.Contracts/Collector.Contracts.csproj src/shared/Collector.Contracts/
+COPY src/shared/Collector.Messaging/Collector.Messaging.csproj src/shared/Collector.Messaging/
 COPY src/shared/Collector.Observability/Collector.Observability.csproj src/shared/Collector.Observability/
 COPY src/services/Identity/Identity.Api/Identity.Api.csproj src/services/Identity/Identity.Api/
 RUN dotnet restore src/services/Identity/Identity.Api/Identity.Api.csproj
 
-COPY src/shared/Collector.Observability/ src/shared/Collector.Observability/
+COPY src/shared/ src/shared/
 COPY src/services/Identity/Identity.Api/ src/services/Identity/Identity.Api/
 RUN dotnet publish src/services/Identity/Identity.Api/Identity.Api.csproj -c Release -o /app --no-restore
 
