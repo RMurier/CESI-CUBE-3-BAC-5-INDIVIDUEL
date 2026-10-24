@@ -146,4 +146,21 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Creating_an_article_with_an_unknown_category_is_rejected()
+    {
+        Shop? shop = await (await _client.PostAsJsonAsync("/shops", new { Name = "Boutique" })).Content.ReadFromJsonAsync<Shop>();
+
+        HttpResponseMessage response = await _client.PostAsJsonAsync($"/shops/{shop!.Id}/articles", new
+        {
+            Title = "Article orphelin",
+            Description = "Catégorie inexistante.",
+            Price = 10m,
+            ShippingCost = 1m,
+            CategoryId = Guid.NewGuid(),
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

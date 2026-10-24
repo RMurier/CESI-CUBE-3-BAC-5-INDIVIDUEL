@@ -63,4 +63,26 @@ public sealed class MaintenanceTests(IdentityApiFactory factory) : IClassFixture
         Assert.False(verifyDb.RefreshTokens.Any(t => t.TokenHash == "expired"));
         Assert.True(verifyDb.RefreshTokens.Any(t => t.TokenHash == "active"));
     }
+
+    [Fact]
+    public async Task Confirmation_token_purge_removes_expired_tokens_and_keeps_active_ones()
+    {
+        Guid userId = Guid.NewGuid();
+        using (IServiceScope scope = factory.Services.CreateScope())
+        {
+            IdentityDbContext db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+            db.ConfirmationTokens.AddRange(
+                new ConfirmationToken { UserId = userId, TokenHash = "expired", ExpiresAt = DateTimeOffset.UtcNow.AddHours(-1) },
+                new ConfirmationToken { UserId = userId, TokenHash = "active", ExpiresAt = DateTimeOffset.UtcNow.AddHours(1) });
+            await db.SaveChangesAsync();
+        }
+
+        HttpResponseMessage response = await ClientWithKey(Key).PostAsync("/internal/maintenance/purge-confirmation-tokens", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using IServiceScope verify = factory.Services.CreateScope();
+        IdentityDbContext verifyDb = verify.ServiceProvider.GetRequiredService<IdentityDbContext>();
+        Assert.False(verifyDb.ConfirmationTokens.Any(t => t.TokenHash == "expired"));
+        Assert.True(verifyDb.ConfirmationTokens.Any(t => t.TokenHash == "active"));
+    }
 }
