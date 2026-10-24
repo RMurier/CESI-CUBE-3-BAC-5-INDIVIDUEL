@@ -8,7 +8,12 @@ groups:
       - uid: collector-pod-restarts
         title: "Redémarrages fréquents de pod (CrashLoopBackOff probable)"
         condition: C
-        for: 0s
+        # 0s déclenchait sur le moindre pic transitoire (ex: probe de liveness en échec une fois le
+        # temps qu'un pod démarre pendant un rollout normal), relayé vers Omnia à chaque déploiement
+        # sans qu'il y ait de vrai CrashLoopBackOff — bruit constaté sur plusieurs déploiements de suite.
+        # 5m exige que le seuil reste dépassé en continu avant de notifier (un vrai CrashLoopBackOff
+        # persiste largement au-delà, contrairement à un blip de rollout).
+        for: 5m
         noDataState: OK
         execErrState: Error
         data:
