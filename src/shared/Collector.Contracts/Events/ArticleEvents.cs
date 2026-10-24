@@ -27,8 +27,13 @@ public sealed record ArticlePublishedEvent(
     DateTimeOffset PublishedAt);
 
 /// <summary>Publié par Catalog quand le prix d'un article déjà en ligne change.</summary>
+/// <remarks>
+/// Title dénormalisé (même choix que OrderPaidEvent.ArticleTitle) : Notification en a besoin pour
+/// matcher les Subscriptions par mot-clé sans rappeler Catalog, Moderation pour son log de détection.
+/// </remarks>
 public sealed record PriceChangedEvent(
     Guid ArticleId,
+    string Title,
     decimal PreviousPrice,
     decimal NewPrice,
     DateTimeOffset ChangedAt);

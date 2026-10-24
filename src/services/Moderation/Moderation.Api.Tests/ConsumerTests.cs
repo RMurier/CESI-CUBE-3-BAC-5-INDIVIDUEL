@@ -60,7 +60,7 @@ public sealed class ConsumerTests(ModerationApiFactory factory) : IClassFixture<
         var articleId = Guid.NewGuid();
 
         using var scope = factory.Services.CreateScope();
-        await ConsumerTestHelper.HandleAsync(consumer, new PriceChangedEvent(articleId, previous, current, DateTimeOffset.UtcNow), scope.ServiceProvider);
+        await ConsumerTestHelper.HandleAsync(consumer, new PriceChangedEvent(articleId, "Article de test", previous, current, DateTimeOffset.UtcNow), scope.ServiceProvider);
 
         var db = scope.ServiceProvider.GetRequiredService<ModerationDbContext>();
         var decision = await db.Decisions.SingleAsync(d => d.ArticleId == articleId);

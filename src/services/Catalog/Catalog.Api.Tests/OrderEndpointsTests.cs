@@ -23,6 +23,17 @@ public sealed class OrderEndpointsTests(CatalogApiFactory factory) : IClassFixtu
         return client;
     }
 
+    // Les catégories ne sont créées que par l'admin (POST /categories) : on seed directement en base.
+    private static async Task<Guid> SeedCategoryAsync(CatalogApiFactory f)
+    {
+        using IServiceScope scope = f.Services.CreateScope();
+        CatalogDbContext db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+        Category category = new() { Name = $"Catégorie {Guid.NewGuid()}" };
+        db.Categories.Add(category);
+        await db.SaveChangesAsync();
+        return category.Id;
+    }
+
     /// <summary>Crée boutique + article puis force le statut Published (la modération passe par RabbitMQ, absent en test).</summary>
     private async Task<(Guid SellerId, Article Article)> PublishedArticleAsync(decimal price = 100m, decimal shipping = 10m, bool onboarded = true)
     {
@@ -36,6 +47,7 @@ public sealed class OrderEndpointsTests(CatalogApiFactory factory) : IClassFixtu
             Description = "Poster dédicacé authentique, très bon état.",
             Price = price,
             ShippingCost = shipping,
+            CategoryId = await SeedCategoryAsync(factory),
         })).Content.ReadFromJsonAsync<Article>())!;
 
         using var scope = factory.Services.CreateScope();
@@ -208,6 +220,7 @@ public sealed class OrderEndpointsTests(CatalogApiFactory factory) : IClassFixtu
         var article = (await (await seller.PostAsJsonAsync($"/shops/{shop.Id}/articles", new
         {
             Title = "En attente", Description = "Article en attente de modération.", Price = 10m, ShippingCost = 1m,
+            CategoryId = await SeedCategoryAsync(factory),
         })).Content.ReadFromJsonAsync<Article>())!;
 
         var response = await ClientFor(factory, Guid.NewGuid()).PostAsJsonAsync("/orders", new { ArticleId = article.Id });

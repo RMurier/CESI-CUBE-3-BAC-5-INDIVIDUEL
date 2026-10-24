@@ -17,10 +17,17 @@ export interface Article {
   description: string;
   price: number;
   shippingCost: number;
+  categoryId: string | null;
   status: ArticleStatusCode;
   rejectionReason: string | null;
   submittedAt: string;
   publishedAt: string | null;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  createdAt: string;
 }
 
 export interface ShopSummary {
@@ -56,10 +63,25 @@ async function parseOrThrow<T>(res: Response, fallback: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function listPublishedArticles(): Promise<Article[]> {
-  return fetch(`${apiConfig.catalog}/articles`, { cache: "no-store" }).then((res) =>
+export function listPublishedArticles(categoryId?: string): Promise<Article[]> {
+  const query: string = categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : "";
+  return fetch(`${apiConfig.catalog}/articles${query}`, { cache: "no-store" }).then((res) =>
     parseOrThrow(res, "Impossible de charger le catalogue."),
   );
+}
+
+export function listCategories(): Promise<Category[]> {
+  return fetch(`${apiConfig.catalog}/categories`, { cache: "no-store" }).then((res) =>
+    parseOrThrow(res, "Impossible de charger les catégories."),
+  );
+}
+
+export function createCategory(token: string, name: string): Promise<Category> {
+  return fetch(`${apiConfig.catalog}/categories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  }).then((res) => parseOrThrow(res, "Impossible de créer la catégorie."));
 }
 
 export function getArticle(id: string): Promise<Article> {
@@ -87,6 +109,7 @@ export interface CreateArticleInput {
   description: string;
   price: number;
   shippingCost: number;
+  categoryId: string;
 }
 
 export function createArticle(token: string, shopId: string, input: CreateArticleInput): Promise<Article> {

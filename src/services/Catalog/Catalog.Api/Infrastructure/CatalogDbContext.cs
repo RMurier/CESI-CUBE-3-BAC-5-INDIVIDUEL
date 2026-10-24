@@ -7,6 +7,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
 {
     public DbSet<Shop> Shops => Set<Shop>();
     public DbSet<Article> Articles => Set<Article>();
+    public DbSet<Category> Categories => Set<Category>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<SellerPayoutAccount> SellerPayoutAccounts => Set<SellerPayoutAccount>();
 
@@ -25,6 +26,13 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             entity.Property(a => a.Title).HasMaxLength(200).IsRequired();
             entity.Property(a => a.Price).HasColumnType("decimal(10,2)");
             entity.Property(a => a.ShippingCost).HasColumnType("decimal(10,2)");
+        });
+
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.HasIndex(c => c.Name).IsUnique();
+            entity.Property(c => c.Name).HasMaxLength(64).IsRequired();
         });
 
         modelBuilder.Entity<Order>(entity =>

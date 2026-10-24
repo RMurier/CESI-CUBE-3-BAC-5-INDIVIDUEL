@@ -27,9 +27,12 @@ public sealed class SmtpEmailSender(
                 return;
             }
 
+            // EnableSsl figé à true (pas de config override) : aucune raison légitime de désactiver TLS pour
+            // un envoi SMTP, et une valeur littérale lève le hotspot Sonar qu'une valeur pilotée par la
+            // config ne peut pas satisfaire statiquement.
             using var client = new SmtpClient(configuration["Smtp:Host"], configuration.GetValue("Smtp:Port", 587))
             {
-                EnableSsl = configuration.GetValue("Smtp:EnableSsl", true),
+                EnableSsl = true,
                 Credentials = new NetworkCredential(configuration["Smtp:User"], configuration["Smtp:Password"]),
             };
             using var message = new MailMessage(configuration["Smtp:From"]!, email, subject, body);

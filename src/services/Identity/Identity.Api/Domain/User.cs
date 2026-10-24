@@ -15,6 +15,10 @@ public sealed class User
 
     public bool IsAdmin { get; set; }
 
+    /// <summary>Mis à jour par EmailConfirmationService quand le lien reçu par email est cliqué.
+    /// Purement informatif pour l'instant : rien ne bloque un compte non confirmé.</summary>
+    public bool IsEmailConfirmed { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     public IEnumerable<string> Roles()

@@ -83,7 +83,7 @@ public sealed class RabbitMqEventBusTests : IDisposable
                 (_, _, _, props, _, _) => capturedProps = props)
             .Returns(ValueTask.CompletedTask);
 
-        await bus.PublishAsync(new PriceChangedEvent(Guid.NewGuid(), 10m, 8m, DateTimeOffset.UtcNow));
+        await bus.PublishAsync(new PriceChangedEvent(Guid.NewGuid(), "Article de test", 10m, 8m, DateTimeOffset.UtcNow));
 
         Assert.Equal("corr-99", capturedProps!.CorrelationId);
     }
@@ -97,7 +97,7 @@ public sealed class RabbitMqEventBusTests : IDisposable
                 It.IsAny<BasicProperties>(), It.IsAny<ReadOnlyMemory<byte>>(), It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
-        var evt = new PriceChangedEvent(Guid.NewGuid(), 10m, 8m, DateTimeOffset.UtcNow);
+        var evt = new PriceChangedEvent(Guid.NewGuid(), "Article de test", 10m, 8m, DateTimeOffset.UtcNow);
         await _bus.PublishAsync(evt);
         await _bus.PublishAsync(evt);
 

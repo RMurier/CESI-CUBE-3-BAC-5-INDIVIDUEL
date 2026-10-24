@@ -10,7 +10,7 @@ public sealed class RuleBasedFraudDetectorTests
     private readonly RuleBasedFraudDetector _detector = new();
 
     private static PriceChangedEvent Change(decimal from, decimal to) =>
-        new(Guid.NewGuid(), from, to, DateTimeOffset.UtcNow);
+        new(Guid.NewGuid(), "Article de test", from, to, DateTimeOffset.UtcNow);
 
     [Theory]
     [InlineData(100, 120)] // +20 %

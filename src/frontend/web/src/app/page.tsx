@@ -1,18 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listPublishedArticles, type Article } from "@/lib/api/catalog";
+import { listCategories, listPublishedArticles, type Article, type Category } from "@/lib/api/catalog";
 import { ArticleCard } from "@/components/ArticleCard";
 
 export default function CataloguePage() {
   const [articles, setArticles] = useState<Article[] | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listPublishedArticles()
+    listCategories()
+      .then(setCategories)
+      .catch(() => setCategories([])); // non bloquant : le catalogue reste consultable sans filtre
+  }, []);
+
+  useEffect(() => {
+    // Pas de setArticles(null) synchrone ici (react-hooks/set-state-in-effect) : le catalogue
+    // précédent reste affiché jusqu'à l'arrivée du nouveau filtre plutôt qu'un flash de chargement.
+    listPublishedArticles(selectedCategoryId || undefined)
       .then(setArticles)
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [selectedCategoryId]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -22,6 +32,36 @@ export default function CataloguePage() {
           Objets de collection entre particuliers — articles publiés après contrôle automatisé.
         </p>
       </div>
+
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedCategoryId("")}
+            className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+              selectedCategoryId === ""
+                ? "border-foreground bg-foreground text-background"
+                : "border-black/[.08] dark:border-white/[.145]"
+            }`}
+          >
+            Toutes
+          </button>
+          {categories.map((category) => (
+            <button
+              key={category.id}
+              type="button"
+              onClick={() => setSelectedCategoryId(category.id)}
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+                selectedCategoryId === category.id
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-black/[.08] dark:border-white/[.145]"
+              }`}
+            >
+              {category.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

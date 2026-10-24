@@ -33,6 +33,8 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 builder.Services.AddCollectorEventBus(builder.Configuration);
 builder.Services.AddHostedService<ArticlePublishedConsumer>();
 builder.Services.AddHostedService<OrderPaidConsumer>();
+builder.Services.AddHostedService<EmailConfirmationRequestedConsumer>();
+builder.Services.AddHostedService<PriceChangedConsumer>();
 // Smtp:Host absent (local dev, tests) = stub de log, comme Stripe/Omnia (voir IEmailSender.cs).
 if (!string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"]))
 {

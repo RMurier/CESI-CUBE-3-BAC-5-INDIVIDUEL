@@ -129,6 +129,11 @@ app.MapPost("/shops/{shopId:guid}/articles", async (
     if (shop is null) return Results.NotFound();
     if (shop.SellerId != CurrentUserId(principal)) return Results.Forbid();
 
+    if (!await db.Categories.AnyAsync(c => c.Id == request.CategoryId))
+    {
+        return Results.BadRequest(new { message = "Catégorie introuvable." });
+    }
+
     var article = new Article
     {
         ShopId = shopId,
@@ -136,6 +141,7 @@ app.MapPost("/shops/{shopId:guid}/articles", async (
         Description = request.Description,
         Price = request.Price,
         ShippingCost = request.ShippingCost,
+        CategoryId = request.CategoryId,
     };
     db.Articles.Add(article);
     await db.SaveChangesAsync();
@@ -147,8 +153,11 @@ app.MapPost("/shops/{shopId:guid}/articles", async (
     return Results.Created($"/articles/{article.Id}", article);
 }).RequireAuthorization();
 
-app.MapGet("/articles", async (CatalogDbContext db) =>
-    await db.Articles.Where(a => a.Status == ArticleStatus.Published).ToListAsync());
+app.MapGet("/articles", async (Guid? categoryId, CatalogDbContext db) =>
+    await db.Articles
+        .Where(a => a.Status == ArticleStatus.Published)
+        .Where(a => categoryId == null || a.CategoryId == categoryId)
+        .ToListAsync());
 
 app.MapGet("/articles/{id:guid}", async (Guid id, CatalogDbContext db) =>
     await db.Articles.FindAsync(id) is { } article ? Results.Ok(article) : Results.NotFound());
@@ -170,7 +179,7 @@ app.MapPut("/articles/{id:guid}/price", async (
     article.Price = request.NewPrice;
     await db.SaveChangesAsync();
 
-    await eventBus.PublishAsync(new PriceChangedEvent(article.Id, previousPrice, article.Price, DateTimeOffset.UtcNow));
+    await eventBus.PublishAsync(new PriceChangedEvent(article.Id, article.Title, previousPrice, article.Price, DateTimeOffset.UtcNow));
 
     return Results.Ok(article);
 }).RequireAuthorization();
@@ -178,6 +187,7 @@ app.MapPut("/articles/{id:guid}/price", async (
 app.MapOrderEndpoints();
 app.MapPayoutEndpoints();
 app.MapMaintenanceEndpoints();
+app.MapCategoryEndpoints();
 
 await app.RunAsync();
 

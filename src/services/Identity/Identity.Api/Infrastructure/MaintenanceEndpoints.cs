@@ -28,6 +28,16 @@ public static class MaintenanceEndpoints
             return Results.Ok(new { deleted });
         });
 
+        // Purge des jetons de confirmation d'email expirés (confirmés ou non) — voir EmailConfirmationService.
+        group.MapPost("/maintenance/purge-confirmation-tokens", async (IdentityDbContext db, CancellationToken cancellationToken) =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            int deleted = await db.ConfirmationTokens
+                .Where(t => t.ExpiresAt < now)
+                .ExecuteDeleteAsync(cancellationToken);
+            return Results.Ok(new { deleted });
+        });
+
         // Résolution userId -> email, appelée par Notification.Api pour l'envoi SMTP (voir SmtpEmailSender).
         group.MapGet("/users/{id:guid}/email", async (Guid id, IdentityDbContext db, CancellationToken cancellationToken) =>
         {

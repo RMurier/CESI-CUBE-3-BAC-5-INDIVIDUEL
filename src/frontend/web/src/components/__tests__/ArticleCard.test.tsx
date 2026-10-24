@@ -9,6 +9,7 @@ const article: Article = {
   description: "Une figurine de collection en excellent état.",
   price: 42,
   shippingCost: 5.5,
+  categoryId: null,
   status: ArticleStatus.Published,
   rejectionReason: null,
   submittedAt: "2026-10-01T10:00:00Z",

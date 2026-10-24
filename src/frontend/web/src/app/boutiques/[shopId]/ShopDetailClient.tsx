@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { createArticle, getShop, type ShopDetail } from "@/lib/api/catalog";
+import { createArticle, getShop, listCategories, type Category, type ShopDetail } from "@/lib/api/catalog";
 import { StatusBadge } from "@/components/StatusBadge";
 
 const currency = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -15,12 +15,14 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
   const { auth, getToken } = useAuth();
 
   const [shop, setShop] = useState<ShopDetail | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [shippingCost, setShippingCost] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -36,6 +38,12 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
     return () => clearInterval(interval);
   }, [refresh]);
 
+  useEffect(() => {
+    listCategories()
+      .then(setCategories)
+      .catch(() => setCategories([]));
+  }, []);
+
   const isOwner = auth && shop && auth.userId === shop.sellerId;
 
   async function handleCreateArticle(event: FormEvent) {
@@ -49,11 +57,13 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
         description,
         price: Number(price),
         shippingCost: Number(shippingCost),
+        categoryId,
       });
       setTitle("");
       setDescription("");
       setPrice("");
       setShippingCost("");
+      setCategoryId("");
       refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Impossible de soumettre l'article.");
@@ -121,6 +131,24 @@ export function ShopDetailClient({ shopId }: { shopId: string }) {
                 onChange={(e) => setShippingCost(e.target.value)}
                 className="rounded-lg border border-black/[.08] bg-transparent px-3 py-2 dark:border-white/[.145]"
               />
+            </label>
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              Catégorie{" "}
+              <select
+                required
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="rounded-lg border border-black/[.08] bg-transparent px-3 py-2 dark:border-white/[.145]"
+              >
+                <option value="" disabled>
+                  Choisir une catégorie
+                </option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
             </label>
             {formError && <p className="text-sm text-red-600 dark:text-red-400 sm:col-span-2">{formError}</p>}
             <button

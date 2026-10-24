@@ -35,7 +35,7 @@ describe("catalog api", () => {
 
   it("createArticle poste sur la boutique", async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: "a" }) });
-    await createArticle("tok", "s1", { title: "t", description: "d", price: 1, shippingCost: 0 });
+    await createArticle("tok", "s1", { title: "t", description: "d", price: 1, shippingCost: 0, categoryId: "c1" });
     expect(fetchMock.mock.calls[0][0]).toContain("/shops/s1/articles");
   });
 

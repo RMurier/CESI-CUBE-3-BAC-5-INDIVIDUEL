@@ -3,11 +3,12 @@ import CataloguePage from "../page";
 import { ArticleDetailClient } from "../articles/[id]/ArticleDetailClient";
 import ArticleDetailPage from "../articles/[id]/page";
 import ShopDetailPage from "../boutiques/[shopId]/page";
-import { getArticle, listPublishedArticles, type Article } from "@/lib/api/catalog";
+import { getArticle, listCategories, listPublishedArticles, type Article } from "@/lib/api/catalog";
 
 jest.mock("@/lib/api/catalog", () => ({
   ...jest.requireActual("@/lib/api/catalog"),
   listPublishedArticles: jest.fn(),
+  listCategories: jest.fn(),
   getArticle: jest.fn(),
 }));
 jest.mock("@/lib/auth-context", () => ({ useAuth: () => ({ auth: null, getToken: jest.fn() }) }));
@@ -22,6 +23,7 @@ const article: Article = {
   description: "Très belle pièce",
   price: 10,
   shippingCost: 2,
+  categoryId: null,
   status: 1,
   rejectionReason: null,
   submittedAt: "2026-01-01T10:00:00Z",
@@ -29,6 +31,10 @@ const article: Article = {
 };
 
 describe("CataloguePage", () => {
+  beforeEach(() => {
+    (listCategories as jest.Mock).mockResolvedValue([]);
+  });
+
   it("affiche les articles", async () => {
     (listPublishedArticles as jest.Mock).mockResolvedValue([article]);
     render(<CataloguePage />);

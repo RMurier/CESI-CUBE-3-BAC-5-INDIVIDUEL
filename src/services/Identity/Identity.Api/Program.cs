@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Collector.Observability;
+using Collector.Messaging;
+using Collector.Contracts.Events;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -30,6 +32,8 @@ if (metricsPort is not null)
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<EmailConfirmationService>();
+builder.Services.AddCollectorEventBus(builder.Configuration);
 
 builder.Services.AddDbContext<IdentityDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
@@ -119,7 +123,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/ready");
 
-app.MapPost("/auth/register", async (RegisterRequest request, IdentityDbContext db) =>
+app.MapPost("/auth/register", async (RegisterRequest request, IdentityDbContext db, EmailConfirmationService confirmations, IEventBus eventBus) =>
 {
     if (await db.Users.AnyAsync(u => u.Email == request.Email))
     {
@@ -136,8 +140,21 @@ app.MapPost("/auth/register", async (RegisterRequest request, IdentityDbContext 
     db.Users.Add(user);
     await db.SaveChangesAsync();
 
+    (string confirmationToken, DateTimeOffset expiresAt) = await confirmations.IssueAsync(user);
+    await eventBus.PublishAsync(new EmailConfirmationRequestedEvent(user.Id, user.Email, confirmationToken, expiresAt));
+
     return Results.Created($"/users/{user.Id}", new { user.Id, user.Email, user.DisplayName });
 }).RequireRateLimiting("auth");
+
+// Lien cliqué depuis l'email de confirmation (voir EmailConfirmationRequestedConsumer, Notification.Api) :
+// doit rester un GET simple (pas d'appel JS), donc réponse HTML directe plutôt qu'un redirect vers le frontend.
+app.MapGet("/auth/confirm-email", async (string token, EmailConfirmationService confirmations) =>
+{
+    bool confirmed = await confirmations.ConfirmAsync(token);
+    return confirmed
+        ? Results.Content("<!doctype html><title>Email confirmé</title><h1>Email confirmé</h1><p>Vous pouvez fermer cette page.</p>", "text/html")
+        : Results.Content("<!doctype html><title>Lien invalide</title><h1>Lien invalide ou expiré</h1>", "text/html", statusCode: StatusCodes.Status400BadRequest);
+}).AllowAnonymous();
 
 app.MapPost("/auth/login", async (LoginRequest request, IdentityDbContext db, JwtTokenService tokenService, RefreshTokenService refreshTokens, IOmniaClient omnia) =>
 {

@@ -46,6 +46,21 @@ public static class CatalogSchemaUpgrades
                     [CreatedAt] datetimeoffset NOT NULL
                 );
             END
+
+            IF OBJECT_ID(N'[Categories]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [Categories] (
+                    [Id] uniqueidentifier NOT NULL CONSTRAINT [PK_Categories] PRIMARY KEY,
+                    [Name] nvarchar(64) NOT NULL,
+                    [CreatedAt] datetimeoffset NOT NULL
+                );
+                CREATE UNIQUE INDEX [IX_Categories_Name] ON [Categories] ([Name]);
+            END
+
+            IF COL_LENGTH(N'Articles', N'CategoryId') IS NULL
+            BEGIN
+                ALTER TABLE [Articles] ADD [CategoryId] uniqueidentifier NULL;
+            END
             """);
     }
 }

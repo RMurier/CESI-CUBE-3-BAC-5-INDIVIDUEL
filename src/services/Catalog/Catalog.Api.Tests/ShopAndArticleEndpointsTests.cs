@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Catalog.Api.Domain;
+using Catalog.Api.Infrastructure;
 using Collector.Contracts.Events;
 using Collector.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Catalog.Api.Tests;
@@ -20,6 +22,18 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestJwtTokenFactory.IssueToken(sellerId, "Buyer", "Seller"));
         return client;
+    }
+
+    // Les catégories ne sont créées que par l'admin (POST /categories) : on seed directement en base
+    // plutôt que de passer par un client authentifié "Admin" dans chaque test d'article.
+    private static async Task<Guid> SeedCategoryAsync(CatalogApiFactory factory)
+    {
+        using IServiceScope scope = factory.Services.CreateScope();
+        CatalogDbContext db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+        Category category = new() { Name = $"Catégorie {Guid.NewGuid()}" };
+        db.Categories.Add(category);
+        await db.SaveChangesAsync();
+        return category.Id;
     }
 
     // Échoue avec le corps de la réponse en message d'assertion plutôt qu'une JsonException opaque
@@ -46,6 +60,7 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Description = "Figurine Hasbro vintage en excellent état, boîte incluse.",
             Price = 89.90m,
             ShippingCost = 5.90m,
+            CategoryId = await SeedCategoryAsync(factory),
         });
         await AssertStatusAsync(articleResponse, HttpStatusCode.Created);
         var article = await articleResponse.Content.ReadFromJsonAsync<Article>();
@@ -70,6 +85,7 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Description = "Film culte en excellent état, testé et fonctionnel.",
             Price = 20m,
             ShippingCost = 3m,
+            CategoryId = await SeedCategoryAsync(factory),
         });
         await AssertStatusAsync(articleResponse, HttpStatusCode.Created);
         var article = await articleResponse.Content.ReadFromJsonAsync<Article>();
@@ -102,6 +118,7 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Description = "Paire en édition limitée, jamais portée.",
             Price = 200m,
             ShippingCost = 8m,
+            CategoryId = await SeedCategoryAsync(factory),
         })).Content.ReadFromJsonAsync<Article>();
 
         var intruder = CreateAuthenticatedClient(factory, out _);
@@ -123,6 +140,8 @@ public sealed class ShopAndArticleEndpointsTests(CatalogApiFactory factory) : IC
             Description = "Tentative d'injection dans la boutique d'un autre.",
             Price = 5m,
             ShippingCost = 1m,
+            // Peu importe que cette catégorie existe : la vérification de propriété rejette avant.
+            CategoryId = Guid.NewGuid(),
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);

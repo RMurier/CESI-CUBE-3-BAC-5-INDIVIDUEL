@@ -20,6 +20,9 @@ data:
   Jwt__Audience: "collector-api"
   # Notification.Api résout les emails via l'endpoint interne d'Identity (SmtpEmailSender).
   Identity__InternalBaseUrl: "http://collector-identity"
+  # Lien de confirmation d'email (cliquable depuis la boîte mail de l'utilisateur, donc domaine public
+  # via Traefik) — distinct d'Identity__InternalBaseUrl (DNS interne au cluster).
+  Identity__PublicBaseUrl: "https://{{ .Values.global.domain }}/api/identity"
   # Requis par Identity/Catalog/Notification.Api (sinon ils lèvent une exception au démarrage,
   # voir Program.cs) — dérivé du domaine déjà défini par environnement (section 4 du README).
   Cors__FrontendOrigin: "https://{{ .Values.global.domain }}"
