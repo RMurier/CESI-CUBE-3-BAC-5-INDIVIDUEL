@@ -12,7 +12,20 @@ except ImportError:  # Airflow 2.x
 # Pas de MSSQL_CONN_ID ici : les DAGs Collector n'accèdent à aucune base, ils appellent les endpoints
 # /internal/* des services (la base reste la propriété exclusive de chaque service).
 
-TAGS = ["collector", "marketplace", "Romain MURIER"]
+# Marqueur de release : le déploiement (deploy-dags.sh) écrit `collector_release.json` à côté des DAGs. Il est
+# ajouté aux tags, donc au DAG sérialisé : chaque déploiement crée une NOUVELLE version de chaque DAG
+# (v1, v2, ...) au lieu de laisser Airflow conclure « rien n'a changé ». L'historique des versions et des runs est conservé.
+RELEASE_FILE = Path(__file__).parent / "collector_release.json"
+
+
+def _release_tag() -> str:
+    try:
+        return "release:" + json.loads(RELEASE_FILE.read_text(encoding="utf-8"))["release"]
+    except (OSError, ValueError, KeyError):
+        return "release:unknown"
+
+
+TAGS = ["collector", "marketplace", "Romain MURIER", _release_tag()]
 
 DEFAULT_ARGS = {
     "owner": "collector",

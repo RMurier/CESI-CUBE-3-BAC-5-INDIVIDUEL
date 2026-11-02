@@ -28,6 +28,8 @@ Même convention qu'`omnia-airflow` et `porty-airflow` (voir leur `CLAUDE.md`) :
 | `collector_expire_pending_orders.py` | DAG `collector_expire_pending_orders` |
 | `collector_purge_refresh_tokens.py` | DAG `collector_purge_refresh_tokens` |
 | `collector_commission_report.py` | DAG `collector_commission_report` |
+| `collector_purge_confirmation_tokens.py` | DAG `collector_purge_confirmation_tokens` |
+| `collector_release.json` | Marqueur de release (SHA court) écrit par le déploiement ; repris en tag `release:<sha>` de chaque DAG |
 | `collector_environments.json` | Environnements pilotés par l'instance (copié depuis `environments/<instance>.json`) |
 
 Un fichier par DAG, id du DAG = nom du fichier (vérifié au déploiement). Pas de `MSSQL_CONN_ID` : ces DAGs n'accèdent à aucune base.
@@ -40,6 +42,7 @@ Les horaires (cron) sont en UTC, comme pour les autres DAGs.
 | `collector_expire_pending_orders` | toutes les 15 min | Annule les commandes `Pending` de plus de 35 min (filet de sécurité si le webhook Stripe d'expiration est perdu) |
 | `collector_purge_refresh_tokens` | tous les jours 03:00 UTC | Supprime les refresh tokens expirés / révoqués depuis > 30 j |
 | `collector_commission_report` | tous les jours 01:00 UTC | Rapprochement : commissions encaissées la veille (log + XCom) |
+| `collector_purge_confirmation_tokens` | tous les jours 03:00 UTC | Supprime les jetons de confirmation d'email expirés (48 h de validité) |
 
 ## CI/CD
 
@@ -54,6 +57,11 @@ push develop -> `dev`, push master -> `uat`, release publiée -> `production`, d
 
 Les DAGs ne sont pas déployés après l'API : si un DAG tourne avant que l'endpoint `/internal/*` qu'il appelle soit déployé, la tâche
 échoue (404) puis est relancée (2 retries, 5 min d'écart, voir `collector_config.py`), ce qui couvre l'écart habituel.
+
+### Versions de DAG
+Airflow 3 ne crée une version (v1, v2, ...) que si le DAG sérialisé change. Chaque déploiement écrit donc un
+`collector_release.json` (SHA court) que `collector_config.py` ajoute aux tags (`release:<sha>`) : chaque déploiement
+= une nouvelle version de chaque DAG, sans rien remplacer (les runs passés gardent leur version, visible dans l'onglet *Details*).
 
 ### Secrets de repo GitHub à créer
 | Secret | Valeur |
