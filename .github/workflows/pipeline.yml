@@ -57,9 +57,11 @@ on:
     branches: [develop, master]
   push:
     branches: [develop, master]
+  # Déploiement prod DÉSACTIVÉ : le déclencheur `release` est commenté, donc deploy-prod, le monitoring prod
+  # et les DAGs de l'instance Airflow prod ne tournent plus. Pour réactiver : décommenter ces deux lignes.
   # Déploiement prod : publier une release (tag) depuis master, pas un push de plus. Voir deploy-prod.
-  release:
-    types: [published]
+  # release:
+  #   types: [published]
 
 permissions:
   contents: read
