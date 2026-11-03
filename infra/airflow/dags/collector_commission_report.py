@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from airflow import DAG
 
 try:  # Airflow 3
@@ -20,12 +22,17 @@ with DAG(
         return get_environments()
 
     @task
-    def commission_report(env: dict, data_interval_start=None, data_interval_end=None) -> dict:
+    def commission_report(env: dict, data_interval_end=None) -> dict:
+        # schedule="0 1 * * *" (chaîne cron) utilise le CronTriggerTimetable d'Airflow 3 : il n'a pas
+        # de vrai intervalle, data_interval_start == data_interval_end == date de déclenchement. On
+        # recalcule donc nous-mêmes la fenêtre "les 24h précédentes" à partir de data_interval_end.
+        to = data_interval_end
+        from_ = to - timedelta(days=1)
         report = call_maintenance(
             "GET",
             env,
             "/api/catalog/internal/reports/commissions",
-            params={"from": data_interval_start.isoformat(), "to": data_interval_end.isoformat()},
+            params={"from": from_.isoformat(), "to": to.isoformat()},
         )
         print(
             f"[{env['name']}] {report['orders']} commande(s), total {report['totalAmount']} EUR, "
