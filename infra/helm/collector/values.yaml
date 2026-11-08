@@ -129,7 +129,7 @@ sqlServer:
 #   maintenance: { allowedCidrs: ["203.0.113.10/32"] }
 # Nécessite Traefik v3 (middleware ipAllowList) et que Traefik voie la vraie IP source du client.
 maintenance:
-  allowedCidrs: []
+  allowedCidrs: ["51.255.207.132/32"]   # airflow.romainmurier.com
 
 # Exposition des métriques Prometheus (/metrics sur un port dédié, non routé par Traefik).
 metrics:

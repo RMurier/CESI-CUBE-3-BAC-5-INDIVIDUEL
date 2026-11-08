@@ -30,6 +30,11 @@ mkdir "$stage/files"
 cp "$here"/dags/collector_*.py "$stage/files/"
 cp "$here/environments/$instance.json" "$stage/files/collector_environments.json"
 
+# Marqueur de release lu par collector_config.py (tag de DAG) : change à chaque déploiement, ce qui force Airflow
+# à créer une nouvelle version de chaque DAG (voir collector_config.py). GITHUB_SHA est fourni par GitHub Actions.
+release="$(printf '%s' "${GITHUB_SHA:-$(git -C "$here" rev-parse HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}" | cut -c1-7)"
+printf '{"release": "%s"}\n' "$release" > "$stage/files/collector_release.json"
+
 # Garde-fous avant d'envoyer quoi que ce soit.
 for f in "$stage"/files/collector_*.py; do
   name="$(basename "$f" .py)"
@@ -71,4 +76,4 @@ tar czf - -C "$stage/files" . | sshpass -e ssh "${ssh_opts[@]}" \
    for f in collector_*; do [ -e \"\$f\" ] || continue; case ' $keep ' in *\" \$f \"*) ;; *) echo \"suppression de \$f (obsolète)\"; rm -f -- \"\$f\" ;; esac; done; \
    ls -1 collector_*"
 
-echo "DAGs Collector déployés sur l'instance Airflow « $instance » ($target)."
+echo "DAGs Collector déployés sur l'instance Airflow « $instance » ($target), release $release."

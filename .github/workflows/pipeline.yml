@@ -3,7 +3,7 @@ name: CI/CD
 # Pipeline unique, en jobs séparés par type d'étape :
 #   test-backend-unit ────┐
 #   test-backend-integration ─┼──→ sonar (needs les deux ci-dessus) ─┐
-#   test-frontend ─────────┤                                          ├──→ build-and-push ──→ deploy-*
+#   test-frontend ─────────┤                                          ├──→ build-and-push ──→ scan-images (Trivy) ──→ deploy-*
 #   vulnerabilities ───────┘                                          ┘
 # test-backend-unit/test-backend-integration/test-frontend/vulnerabilities tournent en parallèle
 # (aucune dépendance entre eux) — unitaires (logique pure, [Trait("Category","Unit")]) et intégration
@@ -416,6 +416,37 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+  # Scan Trivy des images, étape OBLIGATOIRE avant tout déploiement. Un job séparé (et non une étape de
+  # build-and-push) pour que le gate soit visible et unique : tous les déploiements (dev, uat, prod, monitoring,
+  # DAGs Airflow) l'exigent en `success` strict. Un scan qui trouve du CRITICAL/HIGH, MAIS AUSSI un scan qui
+  # plante (base de vulnérabilités injoignable, image introuvable, timeout...) rend ce job rouge, donc RIEN
+  # ne se déploie. fail-fast: false : les 6 scans vont jusqu'au bout pour voir toutes les images en cause d'un coup.
+  # Sur une release (pas de build), il scanne les images déjà poussées pour le SHA taggué, avant deploy-prod.
+  scan-images:
+    name: Scan Trivy (${{ matrix.service }})
+    needs: build-and-push
+    if: >
+      always() &&
+      ((github.event_name == 'push' && needs.build-and-push.result == 'success') || github.event_name == 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [identity, catalog, chat, notification, moderation, frontend]
+    steps:
+      - id: tag
+        name: Déterminer le tag et le registre d'image
+        run: |
+          echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Installer Trivy
         shell: bash
         run: |
@@ -457,7 +488,7 @@ jobs:
   deploy-dev:
     name: Déploiement dev
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     runs-on: self-hosted
     environment: dev
     steps:
@@ -479,7 +510,7 @@ jobs:
   deploy-uat:
     name: Déploiement uat
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     runs-on: self-hosted
     environment: uat
     steps:
@@ -506,6 +537,7 @@ jobs:
     # à celui déjà poussé sur GHCR lors du push sur master qui a précédé cette release (aucun rebuild :
     # l'image déployée en prod est bit pour bit celle déjà validée en uat). La release doit donc être
     # créée depuis le HEAD de master, pas un commit plus ancien.
+    needs: scan-images
     if: github.event_name == 'release'
     runs-on: self-hosted
     environment: production # environnement GitHub protégé : reviewers requis (config manuelle)
@@ -532,9 +564,10 @@ jobs:
 
   # Les jobs ci-dessous tournent EN PARALLÈLE de deploy-dev / deploy-uat / deploy-prod : mêmes conditions
   # de déclenchement (push develop -> dev, push master -> uat, release publiée -> production — reviewer
-  # requis, se valide en une fois avec celui de deploy-prod), sauf que needs: build-and-push ne les gate
-  # QUE sur push (ce job ne tourne pas sur release, voir plus haut) : le "always() && ... result !=
-  # failure/cancelled" neutralise le skip en cascade que provoquerait sinon un needs sur un job skippé.
+  # requis, se valide en une fois avec celui de deploy-prod). Gate strict : sur push, build-and-push ET
+  # scan-images (Trivy) doivent être en `success` (jamais seulement "pas en échec" : un job skippé parce que
+  # les tests ont échoué ne doit pas laisser passer le déploiement) ; sur release (pas de build), scan-images
+  # seul. always() sert uniquement à évaluer cette condition malgré le build skippé sur release.
 
   # 4 jobs indépendants (un par chart) plutôt qu'un seul "déploiement monitoring" : aucune dépendance
   # réelle entre eux (Service/NetworkPolicy résolvent même si le pod visé n'est pas encore prêt), et
@@ -544,11 +577,12 @@ jobs:
   # pousser suffit, les pods redémarrent seuls quand leur config change (annotation checksum).
   deploy-prometheus:
     name: Déploiement Prometheus
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     if: >
       always() &&
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
-      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master') &&
+        needs.build-and-push.result == 'success' && needs.scan-images.result == 'success') ||
+       (github.event_name == 'release' && needs.scan-images.result == 'success'))
     runs-on: self-hosted
     environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     # Un push sur develop et un sur master (ou une release) rapprochés lanceraient deux `helm upgrade`
@@ -570,11 +604,12 @@ jobs:
 
   deploy-kube-state-metrics:
     name: Déploiement kube-state-metrics
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     if: >
       always() &&
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
-      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master') &&
+        needs.build-and-push.result == 'success' && needs.scan-images.result == 'success') ||
+       (github.event_name == 'release' && needs.scan-images.result == 'success'))
     runs-on: self-hosted
     environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
@@ -594,11 +629,12 @@ jobs:
 
   deploy-headlamp:
     name: Déploiement Headlamp
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     if: >
       always() &&
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
-      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master') &&
+        needs.build-and-push.result == 'success' && needs.scan-images.result == 'success') ||
+       (github.event_name == 'release' && needs.scan-images.result == 'success'))
     runs-on: self-hosted
     environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
@@ -618,11 +654,12 @@ jobs:
 
   deploy-grafana:
     name: Déploiement Grafana
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     if: >
       always() &&
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
-      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master') &&
+        needs.build-and-push.result == 'success' && needs.scan-images.result == 'success') ||
+       (github.event_name == 'release' && needs.scan-images.result == 'success'))
     runs-on: self-hosted
     environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
@@ -647,11 +684,12 @@ jobs:
     # develop -> instance dev, master -> instance dev aussi (dev et uat partagent la même instance
     # Airflow, infra/airflow/environments/dev.json), release (prod) -> instance prod. Le dernier push
     # sur develop/master l'emporte sur l'instance dev partagée.
-    needs: build-and-push
+    needs: [build-and-push, scan-images]
     if: >
       always() &&
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')) || github.event_name == 'release') &&
-      needs.build-and-push.result != 'failure' && needs.build-and-push.result != 'cancelled'
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master') &&
+        needs.build-and-push.result == 'success' && needs.scan-images.result == 'success') ||
+       (github.event_name == 'release' && needs.scan-images.result == 'success'))
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'release' && 'production' || github.ref_name == 'master' && 'uat' || 'dev' }}
     concurrency:
