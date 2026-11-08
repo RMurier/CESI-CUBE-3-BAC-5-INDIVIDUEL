@@ -18,6 +18,10 @@ RUN dotnet publish src/services/Catalog/Catalog.Api/Catalog.Api.csproj -c Releas
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+# apt lui-même a une CVE connue (TOCTOU lors d'une install, CVE-2026-109518) : le cache GHA par
+# service (voir build-and-push dans pipeline.yml) peut réutiliser une couche de base plus ancienne
+# que le dernier correctif publié par Microsoft, donc on force la mise à jour ici.
+RUN apt-get update && apt-get upgrade -y apt && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home appuser
 COPY --from=build /app .
 USER appuser
