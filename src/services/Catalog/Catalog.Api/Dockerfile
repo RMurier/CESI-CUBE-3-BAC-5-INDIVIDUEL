@@ -1,7 +1,7 @@
 # Build context attendu : la racine du repo
 # docker build -f src/services/Catalog/Catalog.Api/Dockerfile -t collector-catalog .
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 COPY global.json .
@@ -16,7 +16,7 @@ COPY src/shared/ src/shared/
 COPY src/services/Catalog/Catalog.Api/ src/services/Catalog/Catalog.Api/
 RUN dotnet publish src/services/Catalog/Catalog.Api/Catalog.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 WORKDIR /app
 # apt lui-même a une CVE connue (TOCTOU lors d'une install, CVE-2026-109518) : le cache GHA par
 # service (voir build-and-push dans pipeline.yml) peut réutiliser une couche de base plus ancienne
